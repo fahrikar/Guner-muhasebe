@@ -1,27 +1,6 @@
-// Güner · Sesli Kayıt — Realtime Database güvenlik kuralları.
-//
-// Nasıl yayınlanır (ikisinden biri):
-//   1) Firebase konsolu → Realtime Database → Rules → bu dosyanın tamamını
-//      yapıştır → Publish
-//   2) firebase deploy --only database        (Firebase CLI kuruluysa)
-//
-// Kurallar konsolda YAYINLANANA kadar geçerli değildir. Bu dosyanın repoda
-// durması tek başına hiçbir şeyi korumaz.
-//
-// NE YAPAR
-//   - Kök varsayılan olarak kapalı: tanımlanmamış hiçbir düğüm okunamaz/yazılamaz.
-//   - kayitlar yalnız giriş yapmış istemcilere açık.
-//   - Kayıtlar "yalnız ekleme": var olan bir kayıt DEĞİŞTİRİLEMEZ ve SİLİNEMEZ.
-//     Böylece birisi içeri girse bile geçmişi bozamaz, sadece yeni satır ekleyebilir.
-//   - Alan tipleri ve uzunlukları doğrulanır; devasa veri yazılıp kota şişirilemez.
-//
-// NE YAPMAZ  (önemli)
-//   Uygulama anonim girişle bağlanıyor. Anonim giriş herkese açık olduğu için
-//   "auth != null" pratikte "veritabanı adresini bilen herkes" demektir.
-//   Yani bu kurallar veriyi BOZULMAYA karşı korur, GİZLİLİK sağlamaz.
-//   Gizlilik için anonim giriş kapatılıp Firebase Authentication
-//   (e-posta/parola) ile kişi başı hesap açılmalı ve okuma izni
-//   auth.uid ile sınırlanmalı. Ayrıntı README'de.
+// Realtime Database güvenlik kuralları. Ne yaptığı, ne yapmadığı ve nasıl
+// yayınlandığı README.md → "Firebase güvenlik kuralları" bölümünde.
+// Konsola yapıştırdıktan sonra: son satır 43 ve tek bir } olmalı.
 {
   "rules": {
     ".read": false,

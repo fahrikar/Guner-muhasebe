@@ -114,7 +114,11 @@ korumaz** — Firebase'de yayınlanmaları gerekir. İki yol var:
 1. https://console.firebase.google.com → `guner-fc41b` projesi
 2. Sol menü **Build → Realtime Database** → üstteki **Rules** sekmesi
 3. Kutudaki her şeyi sil, `database.rules.json` dosyasının tamamını yapıştır
-4. **Publish** → "Rules published" yazısını gör
+4. **Yapıştırma tam mı, bak:** son satır **43** ve tek bir `}` olmalı.
+   Telefonda seçim sondaki kapanış parantezlerini düşürebiliyor; düşerse
+   `Error saving rules – Line 44: Unexpected EOF` çıkar. O hata dosyada
+   bozukluk değil, eksik yapıştırma demektir — **Discard** deyip yeniden al.
+5. **Publish** → "Rules published" yazısını gör
 
 **Komut satırından**
 
