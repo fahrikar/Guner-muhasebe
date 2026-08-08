@@ -353,6 +353,29 @@
     <svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><line x1="3.5" y1="10" x2="20.5" y2="10"/></svg>Çekler</button>
 </nav>
 
+<!-- Gider girişlerinde belge sorma penceresi. Kapatılamaz: belge girilmeden
+     kayıt tamamlanmaz, iptal edilirse kayıt hiç oluşmaz. -->
+<div id="belgeKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
+  <div style="background:var(--bg,#fffdf8);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))">
+    <div style="font-weight:700;font-size:16px">Belge gerekli</div>
+    <div class="muted" id="belgeOzet" style="margin:4px 0 14px"></div>
+    <div style="font-weight:600;margin-bottom:7px">Belge türü</div>
+    <div class="row" id="belgeTurler" style="margin-bottom:14px">
+      <button class="btn sm ghost" data-tur="Dekont" onclick="belgeTurSec(this)">Dekont</button>
+      <button class="btn sm ghost" data-tur="Çek"    onclick="belgeTurSec(this)">Çek</button>
+      <button class="btn sm ghost" data-tur="Slip"   onclick="belgeTurSec(this)">Slip</button>
+    </div>
+    <label style="font-weight:600">Belge no</label>
+    <input id="belgeNo" inputmode="text" autocomplete="off" placeholder="örn. 4821"
+           style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#fffdf8;font-size:15px;margin-top:6px">
+    <div class="muted" id="belgeUyari" style="min-height:18px;margin-top:7px"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" style="flex:1" onclick="belgeOnayla()">Kaydet</button>
+      <button class="btn sm ghost" onclick="belgeVazgec()">Vazgeç</button>
+    </div>
+  </div>
+</div>
+
 <script>
 
 /* ============================================================
@@ -564,6 +587,64 @@ function applyRole(){
   document.body.classList.toggle('mudur',!patron);
 }
 
+/* ---------- BELGE ZORUNLULUĞU ----------
+   Müdürler gider (borç) girerken dekont/çek/slip bildirmek zorunda.
+   Muafiyet role değil KİŞİYE bağlı: Abdurrahman patron olduğu için, Ömer ise
+   müdür olmasına rağmen ayrıca muaf. kisiId() patron için 'patron', müdürler
+   için mudurId ('m1'…'m5') döndürür — Ömer m4.
+   Bu kontrol uygulama tarafında; veritabanı kuralları belgeyi şart koşmuyor.
+   Sunucu tarafında da zorunlu olsun istenirse database.rules.json'a eklenir
+   ve kuralların yeniden yayınlanması gerekir. */
+const BELGE_MUAF=['m4'];                       // Ömer
+function belgeMuaf(){
+  if(!CURRENT)return true;
+  if(CURRENT.rol==='patron')return true;       // Abdurrahman
+  return BELGE_MUAF.indexOf(CURRENT.mudurId)>=0;
+}
+function belgeGerekir(items){
+  if(belgeMuaf())return false;
+  return (items||[]).some(i=>i.known&&yonOf(i.known)==='borc');
+}
+let belgeCoz=null, belgeSecili='';
+function belgeSor(items){
+  return new Promise(res=>{
+    const kat=document.getElementById('belgeKat');
+    if(!kat){res(null);return;}
+    belgeCoz=res; belgeSecili='';
+    const borc=(items||[]).filter(i=>i.known&&yonOf(i.known)==='borc');
+    const top=borc.reduce((a,b)=>a+b.amount,0);
+    document.getElementById('belgeOzet').textContent=
+      borc.map(i=>i.known).join(', ')+' · '+money(top);
+    document.getElementById('belgeNo').value='';
+    document.getElementById('belgeUyari').textContent='';
+    Array.prototype.forEach.call(document.querySelectorAll('#belgeTurler button'),
+      b=>b.classList.add('ghost'));
+    kat.style.display='flex';
+    setTimeout(()=>{const n=document.getElementById('belgeNo');if(n)n.focus();},80);
+  });
+}
+function belgeTurSec(btn){
+  belgeSecili=btn.dataset.tur||'';
+  Array.prototype.forEach.call(document.querySelectorAll('#belgeTurler button'),
+    b=>b.classList.toggle('ghost',b!==btn));
+  document.getElementById('belgeUyari').textContent='';
+}
+function belgeKapat(sonuc){
+  const kat=document.getElementById('belgeKat'); if(kat)kat.style.display='none';
+  const f=belgeCoz; belgeCoz=null; if(f)f(sonuc);
+}
+function belgeOnayla(){
+  const no=(document.getElementById('belgeNo').value||'').trim();
+  const uy=document.getElementById('belgeUyari');
+  if(!belgeSecili){uy.textContent='Belge türünü seç.';return;}
+  if(!no){uy.textContent='Belge numarasını yaz.';return;}
+  belgeKapat({tur:belgeSecili,no:no.slice(0,40)});
+}
+function belgeVazgec(){
+  if(!confirm('Belge girilmezse bu gider kaydedilmez. Vazgeçilsin mi?'))return;
+  belgeKapat(null);
+}
+
 /* Bulut senkron: müdür yazar, patron dinler */
 let cloudRef=null;
 function startCloud(){
@@ -770,9 +851,24 @@ async function autoSaveVoice(){
     }
     const items=parseItems(txt);
     const bilinen=items.filter(i=>i.known), bilinmeyen=items.filter(i=>!i.known);
+    /* Belge sorulacaksa kayıt ondan SONRA oluşturulur; vazgeçilirse hiç
+       oluşmaz. Söylenen metin kutuda kalır ki baştan konuşmak gerekmesin. */
+    let belge=null;
+    if(belgeGerekir(items)){
+      belge=await belgeSor(items);
+      if(!belge){
+        if(lb){lb.style.display='block';
+          lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+            +'<div style="font-weight:600">Kaydedilmedi</div>'
+            +'<div class="muted" style="margin-top:4px">Gider girişi için belge gerekiyor. Metin duruyor, tekrar kaydedebilirsin.</div></div>';
+          setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
+        return;
+      }
+    }
     const noteId=Date.now();
     const anomali=checkAnomalies(items,noteId);
     const yeni={id:noteId,type:'voice',text:txt,items,createdAt:new Date().toISOString()};
+    if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
     NOTES.unshift(yeni);
     await Store.set('notes',NOTES);
     pushCloudNote(yeni);
@@ -790,7 +886,8 @@ async function autoSaveVoice(){
       lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
         +'<div style="font-weight:600;margin-bottom:6px">Kaydedildi</div>'
         +(bilinen.length?bilinen.map(i=>'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+escapeHtml(i.known)+'</span><b>'+money(i.amount)+'</b></div>').join(''):'<div class="muted">Tanınan kalem yok.</div>')
-        +(bilinmeyen.length?'<div class="muted" style="margin-top:8px">'+bilinmeyen.length+' kalem tanımlanamadı, Excel\'e eklenmedi. Kayıtlar bölümünden düzeltebilirsin.</div>':'')
+        /* Tanımlanamayan kalemler burada sayılmıyor; kayıtta duruyorlar ama
+           ekrana yansımıyorlar. */
         +'</div>';
       setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);
     }
@@ -1130,14 +1227,20 @@ async function saveNote(type){
   const txt=document.getElementById(el).value.trim();
   if(!txt){alert('Kaydedilecek metin yok.');return;}
   const items=parseItems(txt);
+  let belge=null;
+  if(belgeGerekir(items)){
+    belge=await belgeSor(items);
+    if(!belge){alert('Gider girişi için belge gerekiyor. Kaydedilmedi.');return;}
+  }
   const yeni={id:Date.now(),type,text:txt,items,createdAt:new Date().toISOString()};
+  if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
   NOTES.unshift(yeni);
   await Store.set('notes',NOTES);
   pushCloudNote(yeni);
   document.getElementById(el).value='';
-  const bil=items.filter(i=>i.known), bilm=items.filter(i=>!i.known);
-  alert((bil.length?'✅ '+bil.length+' kalem tanındı:\n'+bil.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'):'✅ Kaydedildi.')
-    +(bilm.length?'\n\n⚠️ '+bilm.length+' kalem tanımlanamadı, Excel\'e eklenmeyecek:\n'+bilm.map(i=>'• '+i.category).join('\n'):''));
+  // Tanımlanamayan kalemler kullanıcıya gösterilmiyor (kayıtta duruyorlar).
+  const bil=items.filter(i=>i.known);
+  alert(bil.length?'✅ '+bil.length+' kalem tanındı:\n'+bil.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'):'✅ Kaydedildi.');
 }
 function renderNotes(){ renderTable(); }
 function renderTable(){
@@ -1147,6 +1250,7 @@ function renderTable(){
   NOTES.forEach(n=>(n.items||[]).forEach((it,idx)=>rows.push({noteId:n.id,idx,
     tarih:fmt(n.createdAt),kategori:it.known||it.category,grup:it.grup||'—',
     tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
+    belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():'',
     yon:it.known?yonOf(it.known):null})));
   if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
 
@@ -1154,7 +1258,11 @@ function renderTable(){
      girdiği hangisinin çıktığı okunmuyordu ve TOPLAM ikisini topluyordu. */
   const borcR=rows.filter(r=>r.yon==='borc');
   const alacakR=rows.filter(r=>r.yon==='alacak');
-  const tanimsizR=rows.filter(r=>!r.taninan);
+  /* Tanımlanamayan kalemler tabloda gösterilmiyor: ekranı dolduruyor ve
+     zaten hesaba katılmıyorlardı. Kayıt siliniyor değil, yalnız gizleniyor;
+     aşağıdaki "Tanımlanamayan kalemler" kartından (yalnız patronda) hâlâ
+     öğretilebilir ve öğretilince kendiliğinden doğru tabloya düşer. */
+  const tanimsizR=[];
   const topla=a=>a.reduce((x,y)=>x+y.tutar,0);
   const tBorc=topla(borcR), tAlacak=topla(alacakR), net=tAlacak-tBorc;
 
@@ -1162,6 +1270,7 @@ function renderTable(){
       +'<td style="padding:9px 8px;color:var(--sub);white-space:nowrap">'+r.tarih.split(' ')[0]+'</td>'
       +'<td style="padding:9px 8px">'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
         +((CURRENT&&CURRENT.rol==='patron'&&r.mudur)?'<div class="muted" style="font-size:11px">'+escapeHtml(r.mudur)+'</div>':'')
+        +(r.belge?'<div class="muted" style="font-size:11px">'+escapeHtml(r.belge)+'</div>':'')
         +(r.taninan?'<div class="muted" style="font-size:11px">'+escapeHtml(r.grup)+'</div>'
                    :'<div class="muted" style="font-size:11px">tanımsız · Excel\'e girmez</div>')+'</td>'
       +'<td style="padding:9px 8px;text-align:right;font-weight:600;white-space:nowrap">'+money(r.tutar)+'</td>'
@@ -1245,9 +1354,12 @@ function renderTable(){
      +'<label class="btn sm ghost" style="text-align:center">Geri Yükle'
      +'<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(event)"></label></div></div>';
 
-  // tanımsız kalemleri öğretme
+  /* Tanımsız kalemleri öğretme — yalnız patronda. Müdür ekranında hiçbir
+     tanımsız kelime görünmesin isteniyor; ama birinin öğretmesi gerek,
+     yoksa o kelimeler hiçbir zaman Excel'e girmez. */
   const unkRows=[];
-  NOTES.forEach(n=>(n.items||[]).forEach(it=>{ if(!it.known&&!unkRows.some(u=>trLower(u)===trLower(it.category)))unkRows.push(it.category); }));
+  if(isPatron())
+    NOTES.forEach(n=>(n.items||[]).forEach(it=>{ if(!it.known&&!unkRows.some(u=>trLower(u)===trLower(it.category)))unkRows.push(it.category); }));
   if(unkRows.length){
     const opts=CATEGORY_MAP.map(c=>'<option value="'+c.ad+'">'+c.ad+'</option>').join('');
     html+='<div class="card"><div style="font-weight:600;margin-bottom:4px">Tanımlanamayan kalemler</div>'
@@ -1842,7 +1954,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.4";
+const APP_VERSION="2026-08-08.5";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

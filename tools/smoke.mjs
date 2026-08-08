@@ -159,6 +159,80 @@ try{
   check("net = alacak − borç",yon.net===yon.tAlacak-yon.tBorc,JSON.stringify(yon));
   check("borç ve alacak tek toplamda karışmıyor",yon.tBorc>0&&yon.tAlacak>0&&yon.net!==yon.tBorc+yon.tAlacak);
 
+  /* --- tanımlanamayan kalemler ekranda görünmüyor --- */
+  await page.evaluate(async()=>{
+    document.getElementById('voiceText').value='zımbırtı 4321';
+    await saveNote('voice');
+  });
+  await page.waitForTimeout(200);
+  await page.evaluate(()=>{go('notes');renderTable();});
+  const tanimsizTablo=await page.textContent("#tableBox");
+  check("tanımsız kalem tabloda görünmüyor",
+    !tanimsizTablo.includes("TANIMSIZ")&&!tanimsizTablo.includes("4.321"),tanimsizTablo.slice(0,140));
+  // allItems ikinci parametre olmadan tanımsızları elemiş sayılır; burada hepsi lazım
+  check("tanımsız kalem silinmedi, veride duruyor",
+    await page.evaluate(()=>allItems(NOTES,true).some(i=>!i.known&&i.amount===4321)));
+  check("patron tanımsız kalemi öğretebiliyor",tanimsizTablo.includes("Tanımlanamayan kalemler"));
+  check("patrona belge sorulmuyor",
+    !(await page.isVisible("#belgeKat")),"belge penceresi patrona açıldı");
+
+  /* --- belge zorunluluğu: müdür gider girerken dekont/çek/slip vermeli --- */
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  await login(TEST_MUDUR);
+  check("müdür giriş yaptı (belge testi)",await page.isVisible("#home"));
+
+  // 1) gider girişi belge penceresini açar ve vazgeçilirse kayıt oluşmaz
+  const oncekiSayi=await page.evaluate(()=>NOTES.length);
+  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  await page.waitForTimeout(300);
+  check("müdürün gider girişinde belge penceresi açılıyor",await page.isVisible("#belgeKat"));
+  check("belge türü seçilmeden kaydedilmiyor",await page.evaluate(()=>{
+    belgeOnayla();
+    return document.getElementById('belgeUyari').textContent.includes('tür');
+  }));
+  await page.evaluate(()=>{belgeCoz&&belgeKapat(null);});   // vazgeç (onay kutusu olmadan)
+  await page.waitForTimeout(300);
+  check("belge verilmeyince gider kaydedilmiyor",
+    await page.evaluate(n=>NOTES.length===n,oncekiSayi));
+
+  // 2) belge verilince kaydediliyor ve belge kayda işleniyor
+  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  await page.waitForTimeout(300);
+  await page.evaluate(()=>{
+    belgeTurSec(document.querySelector('#belgeTurler button[data-tur="Dekont"]'));
+    document.getElementById('belgeNo').value='4821';
+    belgeOnayla();
+  });
+  await page.waitForTimeout(300);
+  check("belge verilince gider kaydediliyor",
+    await page.evaluate(()=>NOTES.some(n=>n.belgeTur==='Dekont'&&n.belgeNo==='4821')));
+
+  // 3) tahsilat (alacak) gider değil — belge sorulmamalı
+  await page.evaluate(()=>{document.getElementById('voiceText').value='tahsilat 700';saveNote('voice');});
+  await page.waitForTimeout(300);
+  check("gelir girişinde belge sorulmuyor",!(await page.isVisible("#belgeKat")));
+
+  // 4) Ömer muaf: müdür olmasına rağmen belge sorulmuyor
+  check("Ömer (m4) belgeden muaf",await page.evaluate(()=>{
+    const eski=CURRENT;
+    CURRENT={rol:'mudur',ad:'Ömer 4',mudurId:'m4'};
+    const sonuc=belgeGerekir([{known:'Yakıt',amount:100}]);
+    CURRENT=eski;
+    return sonuc===false;
+  }));
+  check("muaf olmayan müdüre belge gerekiyor",await page.evaluate(()=>{
+    const eski=CURRENT;
+    CURRENT={rol:'mudur',ad:'Ahmet 1',mudurId:'m1'};
+    const sonuc=belgeGerekir([{known:'Yakıt',amount:100}]);
+    CURRENT=eski;
+    return sonuc===true;
+  }));
+
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  await login(TEST_PATRON);
+
   /* Excel'de de yön taşınıyor mu */
   const excelYon=await page.evaluate(()=>{
     let sheets=null;
