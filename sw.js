@@ -15,7 +15,7 @@
    Sürüm değiştiğinde index.html'deki APP_VERSION ile birlikte güncellenmeli;
    tarayıcı bu dosyadaki farkı görünce yeni sürümü indirir ve sayfa
    "Yeni sürüm hazır" çubuğunu gösterir. */
-const VERSION="2026-08-08.1";
+const VERSION="2026-08-08.2";
 const CACHE="guner-"+VERSION;
 const ASSETS=["./","./index.html","./xlsx.full.min.js","./manifest.webmanifest",
               "./icon.svg","./icon-192.png","./icon-512.png","./icon-maskable-512.png"];

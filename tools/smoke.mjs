@@ -61,13 +61,16 @@ page.on("dialog",async d=>{ lastDialog=d.message(); await d.accept(); });
    Sayfanın kendi pinHash'i ile testlik bir ROLES tablosu kuruyoruz; her
    yeniden yüklemeden sonra tekrarlanmalı. */
 const TEST_PATRON="11111111", TEST_MUDUR="22222222";
-async function setupPins(){
-  await page.evaluate(async([p,m])=>{
-    ROLES=[{rol:'patron',ad:'Test Patron',hash:await pinHash(p)},
-           {rol:'mudur', ad:'Test Müdür',mudurId:'m1',hash:await pinHash(m)}];
-  },[TEST_PATRON,TEST_MUDUR]);
+async function setupPins(temizle){
+  await page.evaluate(async([p,m,t])=>{
+    BASE_ROLES=[{rol:'patron',ad:'Test Patron',mudurId:'p0',hash:await pinHash(p)},
+                {rol:'mudur', ad:'Test Müdür',mudurId:'m1',hash:await pinHash(m)}];
+    if(t){PIN_OVERRIDES={};await Store.set('pins',{});}
+    applyPinOverrides();
+  },[TEST_PATRON,TEST_MUDUR,!!temizle]);
 }
-async function login(pin){
+async function login(pin,hatirla=false){
+  if(await page.isVisible("#rememberMe"))await page.setChecked("#rememberMe",hatirla);
   await page.fill("#pinInput",pin);
   await page.click('button:has-text("Gir")');
   await page.waitForFunction(
@@ -79,7 +82,11 @@ async function login(pin){
 try{
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.waitForTimeout(600);
-  await setupPins();
+  /* Gerçek taban özet: "beni hatırla" yenilemesini, hiçbir PIN bilmeden
+     bu özet üzerinden sınayacağız (yenilemeden sonra BASE_ROLES gerçek
+     listeye döndüğü için sahte PIN'ler orada bulunmaz). */
+  const GERCEK_HASH=await page.evaluate(()=>BASE_ROLES[0].hash);
+  await setupPins(true);
 
   /* PIN'ler kaynakta düz durmuyor: yalnız özet var. */
   check("PIN'ler kaynakta açık değil",
@@ -227,6 +234,96 @@ try{
   check("çevrimdışı giriş yapılabiliyor",await page.isVisible("#home"));
   check("çevrimdışı Excel kütüphanesi yüklü",await page.evaluate(()=>typeof XLSX!=="undefined"));
   await ctx.setOffline(false);
+
+  /* 13 — "beni hatırla": ikinci açılışta PIN sorulmuyor */
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  await login(TEST_PATRON,true);
+  check("hatırla işaretliyken giriş yapıldı",await page.isVisible("#home"));
+  check("oturum saklandı (PIN değil, özeti)",
+    await page.evaluate(async p=>{
+      const s=await Store.get('session',null);
+      return !!s&&s.hash===await pinHash(p)&&!('pin'in s);
+    },TEST_PATRON));
+
+  /* Yenilemeyi gerçek taban özetle sına: sayfa yeniden yüklendiğinde
+     BASE_ROLES kaynaktaki hâline döner, testin sahte PIN'i orada yoktur. */
+  await page.evaluate(h=>Store.set('session',{hash:h,at:Date.now()}),GERCEK_HASH);
+  await page.reload();
+  await page.waitForTimeout(1000);
+  check("yenilemede PIN sorulmadı",
+    !(await page.isVisible("#login"))&&await page.evaluate(()=>CURRENT!==null));
+  check("hatırlanan oturumda menü açık",await page.isVisible("nav"));
+
+  /* süresi geçmiş oturum kabul edilmemeli */
+  await page.evaluate(h=>Store.set('session',{hash:h,at:Date.now()-40*24*60*60*1000}),GERCEK_HASH);
+  await page.reload();
+  await page.waitForTimeout(800);
+  check("süresi dolmuş oturum reddediliyor",await page.isVisible("#login"));
+
+  /* çıkış hatırlamayı da bırakmalı */
+  await setupPins();
+  await login(TEST_PATRON,true);
+  await page.evaluate(()=>logout());
+  await page.reload();
+  await page.waitForTimeout(700);
+  check("çıkıştan sonra tekrar PIN soruluyor",await page.isVisible("#login"));
+  await setupPins();
+  await login(TEST_PATRON,true);
+
+  /* 14 — uygulama içinden PIN değiştirme */
+  const YENI_PIN="33333333";
+  await page.evaluate(()=>go('notes'));
+  await page.click('button:has-text("PIN\'imi değiştir")');
+  await page.fill("#pinOld","99999999");
+  await page.fill("#pinNew",YENI_PIN);
+  await page.fill("#pinNew2",YENI_PIN);
+  await page.click('button:has-text("PIN\'i kaydet")');
+  await page.waitForTimeout(600);
+  check("yanlış mevcut PIN ile değiştirilemiyor",
+    (await page.textContent("#pinStatus")).includes("yanlış"),
+    await page.textContent("#pinStatus"));
+
+  await page.fill("#pinOld",TEST_PATRON);
+  await page.fill("#pinNew",YENI_PIN);
+  await page.fill("#pinNew2","44444444");
+  await page.click('button:has-text("PIN\'i kaydet")');
+  await page.waitForTimeout(600);
+  check("iki yeni PIN uyuşmazsa reddediliyor",
+    (await page.textContent("#pinStatus")).includes("aynı değil"),
+    await page.textContent("#pinStatus"));
+
+  await page.fill("#pinOld",TEST_PATRON);
+  await page.fill("#pinNew",YENI_PIN);
+  await page.fill("#pinNew2",YENI_PIN);
+  await page.click('button:has-text("PIN\'i kaydet")');
+  await page.waitForTimeout(900);
+  check("PIN değiştirildi",lastDialog.includes("PIN değiştirildi"),lastDialog);
+
+  /* Hatırlanan oturum PIN özetine bağlı; değişiklikle birlikte yenilenmeli,
+     yoksa kullanıcı bir sonraki açılışta sebepsiz dışarı düşer. */
+  check("PIN değişince hatırlanan oturum yenilendi",
+    await page.evaluate(async p=>{
+      const s=await Store.get('session',null);
+      return !!s&&s.hash===await pinHash(p);
+    },YENI_PIN));
+
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  await login(TEST_PATRON);
+  check("eski PIN artık çalışmıyor",
+    (await page.textContent("#loginStatus")).includes("Hatalı"),
+    await page.textContent("#loginStatus"));
+  await login(YENI_PIN);
+  check("yeni PIN ile giriliyor",await page.isVisible("#home"));
+
+  /* 15 — yayından PIN yenilenirse (npm run pin) cihazdaki değişiklik düşer */
+  await page.evaluate(async()=>{
+    BASE_ROLES=[{rol:'patron',ad:'Test Patron',mudurId:'p0',hash:await pinHash('55555555')}];
+    applyPinOverrides();                    // `from` artık tutmuyor
+  });
+  check("yayından PIN sıfırlama cihaz değişikliğini geçersiz kılıyor",
+    await page.evaluate(async()=>ROLES[0].hash===await pinHash('55555555')));
 
   check("sayfada JS hatası yok",errs.length===0,errs.join(" | "));
 }catch(e){ failed++; console.log("  HATA istisna → "+e.message); }

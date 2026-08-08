@@ -186,7 +186,11 @@
              maxlength="8" placeholder="••••••••" aria-label="PIN kodu"
              style="text-align:center;font-size:22px;letter-spacing:8px"
              onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="btn" style="margin-top:14px" onclick="doLogin()">Gir</button>
+      <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:14px 0 0;cursor:pointer">
+        <input type="checkbox" id="rememberMe" class="check" checked style="width:auto">
+        <span>Beni hatırla</span>
+      </label>
+      <button class="btn" style="margin-top:12px" onclick="doLogin()">Gir</button>
       <div class="status" id="loginStatus"></div>
       <div id="cloudWarn" class="muted" style="margin-top:24px;font-size:12px"></div>
     </div>
@@ -368,9 +372,9 @@ const FIREBASE_CONFIG={
    olduğu için kaynağı görüntüleyen herkes patron PIN'ini okuyabiliyordu.
    Artık yalnız PBKDF2 özetleri duruyor, PIN'in kendisi hiçbir dosyada yok.
 
-   PIN değiştirmek için:  npm run pin
-   (Araç yeni özetleri hesaplayıp bu bloğu günceller; PIN'i sen belirlersin,
-   repoya girmez.)
+   PIN değiştirmek için iki yol var:
+   - Uygulama içinden: Tablo → Güvenlik → "PIN'imi değiştir" (o cihazda geçerli)
+   - Yayından, herkes için:  npm run pin  (bu bloğu günceller)
 
    SINIRI BİL: bu, kaynağı okuyan birinin PIN'i doğrudan görmesini engeller.
    Ama doğrulama hâlâ tarayıcıda yapılıyor — teknik bilen biri konsoldan
@@ -378,7 +382,8 @@ const FIREBASE_CONFIG={
    Firebase güvenlik kurallarıdır (firebase-rules.json ve README'ye bak). */
 const PIN_SALT="cda81949d6eb93e09623214361e1fe85";
 const PIN_ITER=310000;
-let ROLES=[
+/* Kaynaktaki taban liste — `npm run pin` bu bloğu yeniden yazar. */
+let BASE_ROLES=[
   {rol:'patron', ad:'Abdurrahman', hash:'b4c331f1a383dcb6cee92bf882f00bcb7c182796543055a337713c8ad7799868'},
   {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'a6d80258e46792b9aa236840150b818e33a595b753e2a4b44d94f2d940ec5804'},
   {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'31c35906b909f448d23c2101c797bda418483da7916fad76b12e4d394afbc3a9'},
@@ -386,6 +391,23 @@ let ROLES=[
   {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'ae8b81fd57a2aa76d6654a16cb675916eba5f05f6d5a64226d879e8bf8a95eba'},
   {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'1bf2ed68c900eb9384c942561267bb0e896c865868a29cda9c1b6ad0b654e742'}
 ];
+
+/* Kullanıcı kendi PIN'ini uygulama içinden değiştirebiliyor. Sayfa kendi
+   kaynağını yazamayacağı için değişiklik cihazda saklanıyor: {id:{hash,from,at}}.
+   `from` alanı, değişikliğin hangi taban PIN'in yerine geçtiğini tutar —
+   yayından `npm run pin` ile PIN yenilenirse taban özet değişir, eski
+   geçersiz kılma kendiliğinden düşer. Yani sıfırlama her zaman mümkün. */
+let ROLES=[];
+let PIN_OVERRIDES={};
+const kisiId=r=>r.mudurId||r.rol;
+function applyPinOverrides(){
+  ROLES=BASE_ROLES.map(r=>{
+    const o=PIN_OVERRIDES[kisiId(r)];
+    if(o&&o.from===r.hash&&/^[0-9a-f]{64}$/.test(o.hash||''))
+      return Object.assign({},r,{hash:o.hash});
+    return r;
+  });
+}
 
 /* PIN → PBKDF2-SHA256 özeti. Tek ortak tuz kullanılıyor: böylece girişte
    tek bir türetme yapılıp bütün kayıtlarla karşılaştırılıyor, telefonda
@@ -414,6 +436,52 @@ function initFirebase(){
 
 function isPatron(){ return !!CURRENT&&CURRENT.rol==='patron'; }
 
+/* Hatırlanan oturumun ömrü. Her açılışta tazelenir, yani günlük kullanımda
+   bir daha PIN sorulmaz; telefon aylarca kenarda kalırsa kendiliğinden düşer. */
+const SESSION_MAX_MS=30*24*60*60*1000;
+
+/* ---------- uygulama içinden PIN değiştirme ---------- */
+function togglePinForm(){
+  const f=document.getElementById('pinForm');
+  if(f)f.style.display=f.style.display==='none'?'block':'none';
+}
+async function changePin(){
+  const st=document.getElementById('pinStatus');
+  if(!CURRENT||!st)return;
+  const eski=document.getElementById('pinOld').value.trim();
+  const yeni=document.getElementById('pinNew').value.trim();
+  const yeni2=document.getElementById('pinNew2').value.trim();
+  if(!/^\d{6,8}$/.test(yeni)){st.textContent='Yeni PIN 6-8 hane olmalı, yalnız rakam.';return;}
+  if(yeni!==yeni2){st.textContent='İki yeni PIN aynı değil.';return;}
+  if(yeni===eski){st.textContent='Yeni PIN eskisiyle aynı olamaz.';return;}
+  if(!(window.crypto&&crypto.subtle)){st.textContent='Güvenli bağlantı (https) gerekiyor.';return;}
+  st.textContent='Kontrol ediliyor…';
+  let eskiH,yeniH;
+  try{ eskiH=await pinHash(eski); yeniH=await pinHash(yeni); }
+  catch(e){ st.textContent='İşlem yapılamadı: '+e.message; return; }
+  if(eskiH!==CURRENT.hash){st.textContent='Mevcut PIN yanlış.';return;}
+  /* Aynı PIN iki kişide olursa giriş yanlış kişiyi seçer. */
+  if(ROLES.some(r=>r.hash===yeniH)){st.textContent='Bu PIN başkasında kullanılıyor, başka bir tane seç.';return;}
+
+  const id=kisiId(CURRENT);
+  const taban=BASE_ROLES.find(r=>kisiId(r)===id);
+  PIN_OVERRIDES[id]={hash:yeniH,from:taban?taban.hash:'',at:Date.now()};
+  if(!await Store.set('pins',PIN_OVERRIDES)){
+    st.textContent='Kaydedilemedi (depolama kapalı). PIN değişmedi.';
+    delete PIN_OVERRIDES[id];
+    return;
+  }
+  applyPinOverrides();
+  CURRENT=ROLES.find(r=>kisiId(r)===id)||CURRENT;
+  /* Hatırlanan oturum PIN özetine bağlı; yenilenmezse kullanıcı düşer. */
+  const sess=await Store.get('session',null);
+  if(sess)await Store.set('session',{hash:yeniH,at:Date.now()});
+  st.textContent='';
+  alert('✅ PIN değiştirildi.\n\nBu değişiklik yalnız bu cihazda geçerli; '
+       +'başka bir telefonda eski PIN çalışmaya devam eder.');
+  renderTable();
+}
+
 /* Giriş ekranını göster, gerisini kapat. Alt menü de gizlenir; aksi hâlde
    PIN sorulmadan sekmelere dokunulabiliyordu. */
 function showLogin(){
@@ -441,18 +509,25 @@ async function doLogin(){
   }catch(e){ st.textContent='Giriş kontrol edilemedi: '+e.message; loginBusy=false; return; }
   loginBusy=false;
   if(!r){ st.textContent='Hatalı PIN.'; document.getElementById('pinInput').value=''; return; }
-  CURRENT=r;
   st.textContent='';
   document.getElementById('pinInput').value='';
+  const hatirla=document.getElementById('rememberMe').checked;
+  await Store.set('session',hatirla?{hash:r.hash,at:Date.now()}:null);
+  await enterApp(r);
+}
+
+/* Giriş sonrası ortak yol: elle girişte de "beni hatırla" ile otomatik
+   girişte de burası çalışır. */
+async function enterApp(r){
+  CURRENT=r;
   document.getElementById('login').style.display='none';
   document.getElementById('login').classList.remove('active');
   document.querySelector('nav').style.display='flex';
   applyRole();
-  loadAll().then(()=>{
-    startCloud();
-    checkReminders();
-    go('home');
-  });
+  await loadAll();
+  startCloud();
+  checkReminders();
+  go('home');
 }
 /* Kalıcı veriyi diskten okur. Çıkışta bellek temizlendiği için her girişte
    yeniden çağrılmalı, yoksa ikinci kullanıcı boş ekran görür. */
@@ -465,6 +540,7 @@ async function loadAll(){
   MOVES=await Store.get('moves',[]);
 }
 function logout(){
+  Store.set('session',null);          // "beni hatırla" da bırakılır
   stopCloud();
   /* Ekranda kalan veri bir sonraki kullanıcıya görünmesin: patron çıkıp
      müdür girdiğinde birleştirilmiş bulut kayıtları ortada kalıyordu. */
@@ -1059,6 +1135,20 @@ function renderTable(){
         +'<button class="btn sm '+(SETTINGS[x.k]!==false?'':'ghost')+'" onclick="toggleSes(\''+x.k+'\')">'
         +(SETTINGS[x.k]!==false?'Açık':'Kapalı')+'</button></div>').join('')
      +'</div>'
+     +'<div class="card"><div style="font-weight:500;margin-bottom:4px">Güvenlik</div>'
+     +'<div class="muted" style="margin-bottom:10px">'+escapeHtml(CURRENT?CURRENT.ad:'')
+       +' olarak girildin. PIN değişikliği yalnız bu cihazda geçerli olur.</div>'
+     +'<button class="btn sm ghost" onclick="togglePinForm()">PIN\'imi değiştir</button>'
+     +'<div id="pinForm" style="display:none;margin-top:12px">'
+     +'<label for="pinOld">Mevcut PIN</label>'
+     +'<input id="pinOld" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">'
+     +'<label for="pinNew">Yeni PIN (6-8 hane)</label>'
+     +'<input id="pinNew" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">'
+     +'<label for="pinNew2">Yeni PIN (tekrar)</label>'
+     +'<input id="pinNew2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">'
+     +'<div class="status" id="pinStatus"></div>'
+     +'<button class="btn" style="margin-top:10px" onclick="changePin()">PIN\'i kaydet</button>'
+     +'</div></div>'
      +'<div class="card"><div style="font-weight:500;margin-bottom:4px">Yedekleme</div>'
      +'<div class="muted" style="margin-bottom:10px">Veriler telefonda saklanıyor. Düzenli yedek al.</div>'
      +'<div class="row"><button class="btn sm ghost" onclick="logout()">Çıkış Yap</button>'
@@ -1609,7 +1699,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.1";
+const APP_VERSION="2026-08-08.2";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
@@ -1654,7 +1744,7 @@ function initUpdates(){
    hemen önce çalışır. Bu yüzden başlatma o olayı beklemeli: gövde içinde
    doğrudan çalıştırılırsa `firebase` henüz tanımsız olur ve bulut sessizce
    kapalı kalırdı. */
-function boot(){
+async function boot(){
   initFirebase();
   const cw=document.getElementById('cloudWarn');
   if(cw&&!cloudOn)cw.textContent='Bulut bağlı değil — girişler sadece bu cihazda kalır. (Firebase config eklenmedi)';
@@ -1662,7 +1752,23 @@ function boot(){
      belleğe alınmıyor, çıkışta da temizleniyor.
      Bildirim izni de açılışta değil, ilk çek eklendiğinde isteniyor —
      uygulamayı ilk açan kişiye sebepsiz izin kutusu çıkıyordu. */
-  showLogin();
+  /* Kişiye özel PIN değişiklikleri (varsa) taban listenin üzerine bindirilir. */
+  PIN_OVERRIDES=await Store.get('pins',{})||{};
+  applyPinOverrides();
+
+  /* "Beni hatırla": saklanan şey PIN değil, PIN'in özeti. PIN değişirse
+     özet de değişir ve saklanan oturum kendiliğinden geçersiz olur. */
+  const sess=await Store.get('session',null);
+  const taze=sess&&sess.hash&&(Date.now()-(sess.at||0))<SESSION_MAX_MS;
+  const kayitli=taze?ROLES.find(x=>x.hash===sess.hash):null;
+  if(kayitli){
+    await Store.set('session',{hash:sess.hash,at:Date.now()});   // süre kayar
+    document.querySelector('nav').style.display='flex';
+    await enterApp(kayitli);
+  }else{
+    if(sess)await Store.set('session',null);
+    showLogin();
+  }
   bindHold(document.getElementById('micHero'),{});
   /* Uygulama arkadan öne gelince vadesi yaklaşan çekler yeniden bakılır. */
   document.addEventListener('visibilitychange',()=>{

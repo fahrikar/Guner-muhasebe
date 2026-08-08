@@ -98,8 +98,8 @@ else{
 /* 7 — PIN'ler kaynağa geri sızmasın.
    Sayfa herkese servis edilen bir dosya; buraya düz yazılan bir PIN'i
    kaynağı görüntüleyen herkes okur. Yalnız PBKDF2 özetleri durmalı. */
-const rolesBlock=(html.match(/let ROLES=\[[\s\S]*?\n\];/)||[""])[0];
-if(!rolesBlock)bad("index.html içinde ROLES bloğu bulunamadı.");
+const rolesBlock=(html.match(/let BASE_ROLES=\[[\s\S]*?\n\];/)||[""])[0];
+if(!rolesBlock)bad("index.html içinde BASE_ROLES bloğu bulunamadı.");
 else{
   const acikPin=/['"]\d{4,8}['"]\s*:/.test(rolesBlock)||/\bpin\s*:/i.test(rolesBlock);
   const ozetler=[...rolesBlock.matchAll(/hash:'([0-9a-f]{64})'/g)];

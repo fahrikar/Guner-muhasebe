@@ -25,6 +25,18 @@ cümle stoktan düşer.
 
 Kişiler ve rolleri `tools/make-pins.mjs` içindeki listede tanımlı.
 
+## Giriş ve "beni hatırla"
+
+Giriş ekranındaki **Beni hatırla** işaretliyken (varsayılan açık) PIN bir kez
+girilir; uygulama sonraki açılışlarda doğrudan içeri girer. Saklanan şey PIN
+değil, PIN'in özeti — ve her açılışta süre tazelenir, yani günlük kullanımda
+bir daha sorulmaz. Telefon 30 gün hiç açılmazsa oturum düşer ve PIN yeniden
+istenir. **Çıkış Yap** (Tablo → Yedekleme) hatırlamayı da bırakır.
+
+> Hatırlanan oturum, telefonu eline alan herkesin uygulamaya girebilmesi
+> demektir. Telefonun kendi ekran kilidi bu yüzden önemli. Ortak kullanılan
+> bir cihazda kutunun işaretini kaldırın.
+
 ## PIN kodları
 
 PIN'ler **kaynak dosyada tutulmaz**. `index.html` yalnızca PBKDF2-SHA256
@@ -39,6 +51,20 @@ npm run pin -- --yeni-tuz   # tuzu da yeniler
 
 Komut PIN'leri bir kez ekrana basar ve hiçbir yere kaydetmez — oradan
 kişilere iletilmeli.
+
+### Kullanıcı kendi PIN'ini değiştirebilir
+
+Uygulama içinde: **Tablo → Güvenlik → PIN'imi değiştir**. Mevcut PIN sorulur,
+yeni PIN 6-8 hane olmalı ve başka bir kullanıcınınkiyle çakışamaz.
+
+Bu değişiklik **yalnız o cihazda** geçerlidir: sayfa kendi kaynağını
+yazamadığı için değişiklik telefonun kendi deposunda tutuluyor. Aynı kişi
+başka bir telefondan girerse orada eski PIN çalışmaya devam eder. Herkes için
+kalıcı değişiklik `npm run pin` + yayın ile yapılır.
+
+`npm run pin` çalıştırıldığında cihazlardaki değişiklikler kendiliğinden
+düşer (her değişiklik hangi taban PIN'in yerine geçtiğini tutar). Yani bir
+kullanıcı PIN'ini unutursa yayından sıfırlamak her zaman işe yarar.
 
 ### Bunun sınırı
 
@@ -120,7 +146,7 @@ npm install      # sadece test aracı (playwright-core); uygulama bağımlılık
 npm run check    # sözdizimi, sürüm ikilisi, onclick bağlantıları, manifest, PIN özetleri
 npm test         # gerçek tarayıcıda uçtan uca: kalıcılık, rol ayrımı, çevrimdışı
 npm run bump     # yayın öncesi iki dosyadaki sürümü birlikte artırır
-npm run pin      # PIN kodlarını değiştirir
+npm run pin      # PIN kodlarını yayın için değiştirir
 npm run ikon     # simgeleri yeniden üretir
 ```
 
@@ -136,5 +162,9 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   etkilenmiyor. Yine de kütüphane güncellenirse iyi olur.
 - Çek hatırlatması yalnız uygulama açıkken/öne geldiğinde çalışır; arka
   planda bildirim gönderen bir servis yok.
+- Uygulama içinden yapılan PIN değişikliği cihazlar arasında eşitlenmiyor.
+  Bunun için PIN özetlerinin Firebase'e yazılması gerekir; kimliğin hâlâ
+  istemcide doğrulandığı bir kurulumda bunu eklemek yeni bir açık yaratır,
+  bu yüzden Firebase Authentication'a geçilmeden yapılmadı.
 - Sesli komut iPhone/iPad tarayıcılarında çalışmaz (Safari canlı ses
   tanımayı desteklemiyor); metin elle de yazılabilir.

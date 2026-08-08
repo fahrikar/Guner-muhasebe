@@ -74,12 +74,12 @@ const satirlar=KISILER.map((k,i)=>{
 }).join(",\n");
 
 html=html.replace(/const PIN_SALT\s*=\s*"[0-9a-f]*";/,`const PIN_SALT="${salt}";`);
-const roleRe=/let ROLES=\[[\s\S]*?\n\];/;
+const roleRe=/let BASE_ROLES=\[[\s\S]*?\n\];/;
 if(!roleRe.test(html)){
-  console.error("index.html içindeki ROLES bloğu bulunamadı.");
+  console.error("index.html içindeki BASE_ROLES bloğu bulunamadı.");
   process.exit(1);
 }
-html=html.replace(roleRe,`let ROLES=[\n${satirlar}\n];`);
+html=html.replace(roleRe,`let BASE_ROLES=[\n${satirlar}\n];`);
 writeFileSync(htmlPath,html);
 
 console.log("\nPIN'ler güncellendi. index.html'e yalnızca özetler yazıldı.\n");
