@@ -182,7 +182,10 @@
       </div>
       <h2 style="text-align:center">Giriş</h2>
       <p class="muted" style="margin-bottom:18px">PIN kodunu gir</p>
-      <input id="pinInput" type="tel" inputmode="numeric" maxlength="8" placeholder="••••" style="text-align:center;font-size:22px;letter-spacing:8px" onkeydown="if(event.key==='Enter')doLogin()">
+      <input id="pinInput" type="password" inputmode="numeric" autocomplete="current-password"
+             maxlength="8" placeholder="••••••••" aria-label="PIN kodu"
+             style="text-align:center;font-size:22px;letter-spacing:8px"
+             onkeydown="if(event.key==='Enter')doLogin()">
       <button class="btn" style="margin-top:14px" onclick="doLogin()">Gir</button>
       <div class="status" id="loginStatus"></div>
       <div id="cloudWarn" class="muted" style="margin-top:24px;font-size:12px"></div>
