@@ -1155,9 +1155,14 @@ function fuzzyHas(text,key){
 }
 
 
-/* ---------- ÖĞRENEN SÖZLÜK ---------- */
+/* ---------- ÖĞRENİLMİŞ SÖZLÜK (yalnız okunur) ----------
+   Öğretme ekranı kaldırıldı: sözlük artık bir kapı değil, her kalem onay
+   ekranından geçip adıyla kaydediliyor, dolayısıyla öğretilecek tanımsız
+   kelime birikmiyor. Daha önce öğretilmiş kelimeler ise duruyor ve
+   eşleştirmede kullanılmaya devam ediyor — silinseydi o kişilerin
+   emeği ve yedeklerdeki sözlük boşa giderdi. Yeni kelime eklenmiyor. */
 let LEXICON=[];           // {kelime, kategori}
-const SES_VARSAYILAN={kayit:true,stok:true,anomali:true,ogrenme:true};
+const SES_VARSAYILAN={kayit:true,stok:true,anomali:true};
 let SETTINGS=Object.assign({},SES_VARSAYILAN);
 
 function learnedMatch(text){
@@ -1169,24 +1174,6 @@ function learnedMatch(text){
   if(!best)return null;
   const c=CATEGORY_MAP.find(c=>c.ad===best.kategori);
   return c||{ad:best.kategori,grup:'Öğrenilen'};
-}
-async function teachCategory(kelime,kategori){
-  const k=kelime.trim(); if(!k)return;
-  if(!LEXICON.some(l=>trLower(l.kelime)===trLower(k)&&l.kategori===kategori))
-    LEXICON.push({kelime:k,kategori});
-  await Store.set('lexicon',LEXICON);
-  await reparseAll();
-}
-async function reparseAll(){
-  NOTES.forEach(n=>{
-    (n.items||[]).forEach(it=>{
-      if(it.known)return;
-      const mc=matchCategory(it.category);
-      if(mc){it.known=mc.ad;it.grup=mc.grup;}
-    });
-  });
-  await Store.set('notes',NOTES);
-  renderTable();
 }
 
 /* ---------- SESLİ TEYİT ---------- */
@@ -1402,7 +1389,6 @@ async function saveNote(type){
   await Store.set('notes',NOTES);
   pushCloudNote(yeni);
   document.getElementById(el).value='';
-  // Tanımlanamayan kalemler kullanıcıya gösterilmiyor (kayıtta duruyorlar).
   alert('✅ '+items.length+' kalem kaydedildi:\n'+items.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'));
 }
 function renderNotes(){ renderTable(); }
@@ -1421,10 +1407,9 @@ function renderTable(){
      girdiği hangisinin çıktığı okunmuyordu ve TOPLAM ikisini topluyordu. */
   const borcR=rows.filter(r=>r.yon==='borc');
   const alacakR=rows.filter(r=>r.yon==='alacak');
-  /* Tanımlanamayan kalemler tabloda gösterilmiyor: ekranı dolduruyor ve
-     zaten hesaba katılmıyorlardı. Kayıt siliniyor değil, yalnız gizleniyor;
-     aşağıdaki "Tanımlanamayan kalemler" kartından (yalnız patronda) hâlâ
-     öğretilebilir ve öğretilince kendiliğinden doğru tabloya düşer. */
+  /* Onay ekranından önce kaydedilmiş eski kalemlerin bir kısmının kategorisi
+     boş olabilir; onlar tabloda gösterilmiyor. Yeni kayıtlarda böyle bir
+     kalem oluşmuyor. */
   const tanimsizR=[];
   const topla=a=>a.reduce((x,y)=>x+y.tutar,0);
   const tBorc=topla(borcR), tAlacak=topla(alacakR), net=tAlacak-tBorc;
@@ -1482,15 +1467,16 @@ function renderTable(){
   const sesler=[
     {k:'kayit',   ad:'Yedek sesi',      aciklama:'Yedek alınınca "yedek alındı" der'},
     {k:'stok',    ad:'Stok teyidi',     aciklama:'"Boya 10 kg çıkışı yapıldı"'},
-    {k:'anomali', ad:'Olağandışı uyarı',aciklama:'Tutar çok saparsa uyarır'},
-    {k:'ogrenme', ad:'Öğrenme teyidi',  aciklama:'Yeni kelime öğretince'}
+    {k:'anomali', ad:'Olağandışı uyarı',aciklama:'Tutar çok saparsa uyarır'}
   ];
   const acikSayi=sesler.filter(x=>SETTINGS[x.k]!==false).length;
   const ayarlar='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
      +'<div style="font-weight:600">Sesli uyarılar</div>'
      +'<div class="row"><button class="btn sm ghost" onclick="tumSes(true)">Hepsi açık</button>'
      +'<button class="btn sm ghost" onclick="tumSes(false)">Hepsi kapalı</button></div></div>'
-     +'<div class="muted" style="margin-bottom:8px">'+acikSayi+'/4 açık · kayıt sonrası teyit artık sesli okunmuyor</div>'
+     /* Sayı elle yazılmıyor: liste değişince "3/4 açık" gibi yanlış bir şey
+        yazmasın. */
+     +'<div class="muted" style="margin-bottom:8px">'+acikSayi+'/'+sesler.length+' açık · kayıt sonrası teyit artık sesli okunmuyor</div>'
      +sesler.map(x=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid var(--line)">'
         +'<div style="flex:1"><div style="font-weight:500">'+x.ad+'</div><div class="muted">'+x.aciklama+'</div></div>'
         +'<button class="btn sm '+(SETTINGS[x.k]!==false?'':'ghost')+'" onclick="toggleSes(\''+x.k+'\')">'
@@ -1517,39 +1503,14 @@ function renderTable(){
      +'<label class="btn sm ghost" style="text-align:center">Geri Yükle'
      +'<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(event)"></label></div></div>';
 
-  /* Tanımsız kalemleri öğretme — yalnız patronda. Müdür ekranında hiçbir
-     tanımsız kelime görünmesin isteniyor; ama birinin öğretmesi gerek,
-     yoksa o kelimeler hiçbir zaman Excel'e girmez. */
-  const unkRows=[];
-  if(isPatron())
-    NOTES.forEach(n=>(n.items||[]).forEach(it=>{ if(!it.known&&!unkRows.some(u=>trLower(u)===trLower(it.category)))unkRows.push(it.category); }));
-  if(unkRows.length){
-    const opts=CATEGORY_MAP.map(c=>'<option value="'+c.ad+'">'+c.ad+'</option>').join('');
-    html+='<div class="card"><div style="font-weight:600;margin-bottom:4px">Tanımlanamayan kalemler</div>'
-       +'<div class="muted" style="margin-bottom:10px">Bir kez tanımla, bundan sonra otomatik tanısın.</div>';
-    unkRows.forEach((u,i)=>{
-      html+='<div style="padding:10px 0;border-top:1px solid var(--line)">'
-        +'<div style="font-weight:500;margin-bottom:8px">"'+escapeHtml(u)+'"</div>'
-        +'<div class="row" style="align-items:center">'
-        /* Kelime data- niteliğinde taşınır: onclick içine gömülen metin,
-           tırnak ya da ters bölü içerdiğinde JS'i bozuyordu. */
-        +'<select id="lx'+i+'" data-kelime="'+escapeHtml(u)+'" style="flex:1;min-width:150px;padding:11px;border-radius:12px;border:1px solid var(--line);background:#fffdf8;font-size:14px">'+opts+'</select>'
-        +'<button class="btn sm" onclick="teachFromRow('+i+')">Öğret</button>'
-        +'</div></div>';
-    });
-    html+='</div>';
-  }
+  /* "Tanımlanamayan kalemler" kartı kaldırıldı. Sözlük artık bir kapı
+     değil: her kalem onay ekranından geçip adıyla kaydediliyor, dolayısıyla
+     öğretilecek tanımsız kelime birikmiyor. */
+
   /* Sürüm ekranda görünsün: "düzeltildi" denen bir hata telefonda sürerken
      eski yapıda mı kalındığını başka türlü anlamanın yolu yok. */
   const surum='<div class="muted" style="text-align:center;padding:14px 0 4px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
   box.innerHTML=html+ayarlar+surum;
-}
-async function teachFromRow(i){
-  const sel=document.getElementById('lx'+i); if(!sel)return;
-  const kelime=sel.dataset.kelime||'';
-  if(!kelime)return;
-  await teachCategory(kelime,sel.value);
-  speak(kelime+', '+sel.value+' olarak öğrenildi.','ogrenme');
 }
 /* Para kaydı siliniyor: yanlış dokunuş bir gideri sessizce yok ediyordu. */
 async function delRow(noteId,idx){
@@ -2038,9 +1999,12 @@ function exportFullTemplate(){
                                      'Tanınan Kelimeler':c.kelimeler.join(', ')}));
   XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(sozluk),[24,10,28,50]),'Tanımlı Kategoriler');
 
-  /* 10) TANIMLANAMAYAN (bilgi amaçlı, toplamlara dahil değil) */
-  const unk=unknownItems(NOTES).map(u=>({Tarih:fmt(u.createdAt),'Algılanan Metin':u.category,'Tutar':u.amount,Not:'Kategori tanımlı değil - toplamlara dahil edilmedi'}));
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(unk.length?unk:[{Tarih:'','Algılanan Metin':'','Tutar':'',Not:''}]),[18,30,14,46]),'Tanımlanamayan');
+  /* 10) TANIMLANAMAYAN — yalnız onay ekranından önce kaydedilmiş eski
+     kalemler için. Yeni kayıtların hepsi adıyla girdiği için bu sayfa
+     normalde boş kalır; hiç yoksa eklenmiyor ki boşuna sayfa açılmasın. */
+  const unk=unknownItems(NOTES).map(u=>({Tarih:fmt(u.createdAt),'Algılanan Metin':u.category,'Tutar':u.amount,Not:'Eski kayıt - kategorisi yok, toplamlara dahil edilmedi'}));
+  if(unk.length)
+    XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(unk),[18,30,14,46]),'Tanımlanamayan');
 
   return writeWorkbook(wb,'Isletme_Sablonu_'+todayStr()+'.xlsx');
 }
@@ -2125,7 +2089,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.8";
+const APP_VERSION="2026-08-08.9";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
