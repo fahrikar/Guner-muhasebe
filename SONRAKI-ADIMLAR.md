@@ -8,30 +8,31 @@ nerede kalındığını hatırlaması için. İşler bitince silinebilir.
 Uygulama çalışır durumda ve `main`'de. `npm run check` + `npm test`
 (11 + 53 kontrol) geçiyor. Ayrıntılı anlatım `README.md`'de.
 
-**Ama uygulama henüz hiçbir yerde yayında değil.** GitHub Pages kapalı,
-Netlify bağlı değil. Kimse kullanamıyor.
+**Uygulama henüz yayında değil, ama yayın düzeneği kuruldu.**
+`.github/workflows/pages.yml` hazır: `main`'e her yazışta siteyi
+GitHub Pages'e basıyor. Eksik olan tek şey aşağıdaki **bir tık**.
 
-## Yapılacaklar — üçü de bir siteye giriş yapmayı gerektiriyor
+## Yapılacaklar — ikisi de bir siteye giriş yapmayı gerektiriyor
 
-### 1. Yayına al (Netlify)
+### 1. Pages'i aç — bir tık, sonrası kendiliğinden
 
-Depo private olacağı için GitHub Pages kullanılamıyor (Free planda private
-depo Pages ile yayınlanamaz). Netlify private depodan da yayın yapıyor.
+Depo **public** olduğu için Pages ücretsiz. Ama Pages'i ilk kez açmak
+depo sahibi yetkisi istiyor; workflow'un kendi token'ı bunu yapamıyor
+(`Resource not accessible by integration`). Bu yüzden tek seferlik:
 
-1. https://app.netlify.com → **Add new site → Import an existing project**
-2. GitHub → `fahrikar/Guner-muhasebe`
-3. Branch **`main`**, build komutu **boş**, publish directory **`.`** (nokta)
-4. Deploy → `https://….netlify.app` adresi çıkar
-5. Site settings → Change site name ile adres kısaltılabilir
+1. https://github.com/fahrikar/Guner-muhasebe/settings/pages
+2. **Build and deployment → Source** → **GitHub Actions** seç
+   (**"Deploy from a branch" değil** — o seçilirse buradaki workflow
+   boşa çalışır)
+3. https://github.com/fahrikar/Guner-muhasebe/actions/workflows/pages.yml
+   → **Run workflow** → `main`
 
-Adres belli olunca herkese **aynı link** verilir; kim olduklarını PIN belirler.
+Bir iki dakika sonra adres: **https://fahrikar.github.io/Guner-muhasebe/**
 
-### 2. Depoyu private yap
+Herkese **aynı link** verilir; kim olduklarını PIN belirler. Bundan sonra
+`main`'e her yazış siteyi kendiliğinden günceller.
 
-GitHub → Settings → en altta Danger Zone → **Change repository visibility**
-→ Private. Netlify bağlantısı bundan etkilenmez.
-
-### 3. Firebase güvenlik kurallarını yayınla
+### 2. Firebase güvenlik kurallarını yayınla
 
 Bu yapılmadığı sürece veritabanı korumasız. `database.rules.json`
 dosyasının tamamı:
@@ -41,6 +42,15 @@ dosyasının tamamı:
 - ya da `firebase deploy --only database` (`firebase.json` hazır)
 
 ## Bilinmesi gereken kararlar
+
+**Depo public kalıyor — bilerek.** Önceki plan depoyu private yapıp
+Netlify'dan yayınlamaktı. Bunun yerine GitHub Pages seçildi; Free planda
+Pages yalnız public depodan yayın yapıyor, yani ikisi bir arada olmuyor.
+Private'a dönülürse yayın durur ve Netlify'a geçmek gerekir. Public
+kalması bir şey sızdırmıyor: PIN'ler repoda yok (aşağıda), Firebase
+adresi ise zaten tarayıcıya inen `index.html`'in içinde — depo private
+olsa da site açık olduğu için görünürdü. Veriyi koruyan şey deponun
+görünürlüğü değil, aşağıdaki kurallar.
 
 **PIN'ler repoda yok.** `index.html` yalnızca PBKDF2 özetlerini taşıyor.
 PIN listesi hiçbir dosyada durmuyor; değiştirmek için `npm run pin`
