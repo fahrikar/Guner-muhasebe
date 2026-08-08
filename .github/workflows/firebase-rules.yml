@@ -1,0 +1,41 @@
+name: Firebase kurallarını yayınla
+
+# database.rules.json her değiştiğinde kuralları Firebase'e basar.
+# FIREBASE_SERVICE_ACCOUNT secret'ı yoksa iş sessizce atlanır (kırmızı X çıkmaz).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - database.rules.json
+      - firebase.json
+      - .firebaserc
+      - .github/workflows/firebase-rules.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yayinla:
+    runs-on: ubuntu-latest
+    env:
+      SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: env.SA == ''
+        run: |
+          echo "::warning::FIREBASE_SERVICE_ACCOUNT secret'ı yok — kurallar yayınlanmadı."
+          echo "Kurulum: SONRAKI-ADIMLAR.md → 'Firebase güvenlik kurallarını yayınla'"
+
+      - if: env.SA != ''
+        run: |
+          install -m 600 /dev/stdin "$RUNNER_TEMP/sa.json" <<< "$SA"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - if: env.SA != ''
+        run: npx --yes firebase-tools@14 deploy --only database --project guner-fc41b --non-interactive
+
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

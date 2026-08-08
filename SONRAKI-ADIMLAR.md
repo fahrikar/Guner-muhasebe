@@ -34,12 +34,29 @@ Herkese **aynı link** verilir; kim olduklarını PIN belirler. Bundan sonra
 
 ### 2. Firebase güvenlik kurallarını yayınla
 
-Bu yapılmadığı sürece veritabanı korumasız. `database.rules.json`
-dosyasının tamamı:
+**Bu yapılmadığı sürece veritabanı korumasız.** İkisinden biri:
 
-- Konsol → https://console.firebase.google.com → `guner-fc41b` →
-  **Build → Realtime Database → Rules** → yapıştır → **Publish**
-- ya da `firebase deploy --only database` (`firebase.json` hazır)
+**a) Elle — 30 saniye, şimdilik yeter**
+
+Konsol → https://console.firebase.google.com/project/guner-fc41b/database/guner-fc41b-default-rtdb/rules
+→ `database.rules.json` dosyasının tamamını yapıştır → **Publish**
+
+**b) Otomatik — bir kereye mahsus kurulum, sonrası kendiliğinden**
+
+`.github/workflows/firebase-rules.yml` hazır: `database.rules.json` her
+değiştiğinde kuralları kendi basar. Tek eksik, deploy edecek kimlik:
+
+1. https://console.firebase.google.com/project/guner-fc41b/settings/serviceaccounts/adminsdk
+   → **Generate new private key** → inen `.json` dosyası
+2. https://github.com/fahrikar/Guner-muhasebe/settings/secrets/actions
+   → **New repository secret** → ad: `FIREBASE_SERVICE_ACCOUNT`,
+   değer: o `.json` dosyasının **tamamı**
+3. https://github.com/fahrikar/Guner-muhasebe/actions/workflows/firebase-rules.yml
+   → **Run workflow**
+
+Secret yoksa workflow kendini atlıyor, hata vermiyor. İnen `.json`
+anahtarı projenin tam yetkisini taşır — GitHub secret'ına yapıştırdıktan
+sonra bilgisayardan sil, hiçbir yere kopyalama.
 
 ## Bilinmesi gereken kararlar
 
