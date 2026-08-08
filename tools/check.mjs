@@ -111,7 +111,23 @@ else{
   else ok(`PBKDF2 tur sayısı yeterli (${iter.toLocaleString("tr-TR")})`);
 }
 
-/* 8 — engelleyici <script> kalmasın: ilk çizimi geciktiriyor */
+/* 8 — Firebase kural dosyası yayınlanabilir mi?
+   Firebase yalnız tek bir "rules" anahtarı kabul ediyor; yanına açıklama
+   anahtarı konursa dosya "unexpected key" diye reddediliyor ve kurallar
+   yayınlanmadan kalıyor — yani veritabanı korumasız kalıyor. */
+try{
+  const ham=readFileSync(join(ROOT,"database.rules.json"),"utf8");
+  const temiz=ham.split("\n").filter(l=>!/^\s*\/\//.test(l)).join("\n");
+  const kural=JSON.parse(temiz);
+  const ust=Object.keys(kural);
+  if(ust.length!==1||ust[0]!=="rules")
+    bad(`database.rules.json üst düzeyinde yalnız "rules" olmalı, şunlar var: ${ust.join(", ")}`);
+  else if(kural.rules[".read"]!==false||kural.rules[".write"]!==false)
+    bad("database.rules.json kökü kapalı değil — tanımsız düğümler herkese açık kalır.");
+  else ok("database.rules.json yayınlanabilir (kök kapalı)");
+}catch(e){ bad(`database.rules.json okunamadı: ${e.message}`); }
+
+/* 9 — engelleyici <script> kalmasın: ilk çizimi geciktiriyor */
 const blocking=[...html.matchAll(/<script(?![^>]*\bdefer\b)(?![^>]*\basync\b)[^>]*\ssrc="[^"]+"[^>]*>/g)];
 if(blocking.length)bad(`${blocking.length} adet defer'siz <script src> var; sayfa yüklenene kadar boş kalır.`);
 else ok("dış script'lerin hepsi defer");

@@ -100,25 +100,56 @@ tarayıcı konsolunu kullanmayı bilen biri `CURRENT` değişkenini değiştirip
 patron gibi davranabilir. Buna kod tarafında kapatılabilecek bir çözüm yok —
 istemciye gönderilen hiçbir kontrol güvenlik sınırı değildir.
 
-**Verinin gerçek koruması Firebase güvenlik kurallarıdır.** Kurallar
-yayınlanmadığı sürece, veritabanı adresini bilen biri PIN'e hiç
-dokunmadan bütün kayıtları okuyabilir.
+**Verinin korunması Firebase güvenlik kurallarına bağlı.** Kurallar
+yayınlanmadığı sürece, veritabanı adresini bilen biri PIN'e hiç dokunmadan
+bütün kayıtları okuyabilir ve silebilir. Aşağıdaki Firebase bölümüne bak.
 
 ## Firebase kurulumu
 
-`firebase-rules.json` dosyasındaki kurallar Firebase konsolunda
-**Realtime Database → Rules** bölümüne yapıştırılıp **Publish** edilmeli.
-Varsayılan "test modu" kuralları (`.read: true`, `.write: true`) herkese
-tam erişim verir ve bir süre sonra kendiliğinden kapanıp uygulamayı da
-bozar.
+Kurallar `database.rules.json` dosyasında. **Repoda durması hiçbir şeyi
+korumaz** — Firebase'de yayınlanmaları gerekir. İki yol var:
+
+**Konsoldan (hesap dışında bir şey gerekmez)**
+
+1. https://console.firebase.google.com → `guner-fc41b` projesi
+2. Sol menü **Build → Realtime Database** → üstteki **Rules** sekmesi
+3. Kutudaki her şeyi sil, `database.rules.json` dosyasının tamamını yapıştır
+4. **Publish** → "Rules published" yazısını gör
+
+**Komut satırından**
+
+```bash
+npm i -g firebase-tools
+firebase login
+firebase deploy --only database
+```
+
+`firebase.json` ve `.firebaserc` repoda hazır; proje `guner-fc41b` olarak
+tanımlı, başka ayar gerekmiyor.
+
+### Kurallar ne yapıyor, ne yapmıyor
+
+| | |
+|---|---|
+| Kök varsayılan kapalı | tanımsız hiçbir düğüm okunamaz/yazılamaz |
+| `kayitlar` okuma | yalnız giriş yapmış istemciler |
+| Kayıt yazma | **yalnız ekleme** — var olan kayıt değiştirilemez, silinemez |
+| Alan doğrulama | tip ve uzunluk kontrolü; kota şişiren dev veri yazılamaz |
+
+**Yapmadığı şey — bunu bilerek kullan:** uygulama anonim girişle bağlanıyor
+ve anonim giriş herkese açık. Yani `auth != null` pratikte "veritabanı
+adresini bilen herkes" demek. Bu kurallar veriyi **bozulmaya karşı** korur,
+**gizlilik sağlamaz**.
+
+Gerçek gizlilik için: Authentication → Sign-in method'da **Anonymous'ı
+kapat**, **Email/Password**'ü aç, altı kişi için hesap aç; sonra uygulamanın
+girişi PIN yerine bu hesaplara bağlanmalı ve kurallarda okuma izni
+`auth.uid` ile sınırlanmalı. Bu, uygulama tarafında da değişiklik isteyen
+ayrı bir iş.
 
 `index.html` içindeki `FIREBASE_CONFIG` gizli bir bilgi değildir —
 `apiKey` Firebase'de proje tanımlayıcısıdır, parola değil. Erişimi
-belirleyen tek şey yukarıdaki kurallardır.
-
-Uzun vadeli doğru çözüm: anonim giriş yerine Firebase Authentication
-(e-posta/parola) + kullanıcı rollerinin veritabanında tutulması + rolü
-kuralların içinde kontrol etmek. O zaman rol kontrolü istemciden çıkar.
+belirleyen tek şey kurallardır.
 
 ## Veri nerede duruyor
 
@@ -161,7 +192,8 @@ sw.js                   service worker — çevrimdışı çalışma + otomatik 
 manifest.webmanifest    ana ekrana kurulum
 icon.svg, icon-*.png    üretilmiş dosyalar — elle düzenlemeyin, npm run ikon
 xlsx.full.min.js        SheetJS 0.18.5, repoda tutuluyor (CDN yok)
-firebase-rules.json     Firebase'e yapıştırılacak güvenlik kuralları
+database.rules.json     Firebase güvenlik kuralları (yayınlanmalı)
+firebase.json           firebase deploy --only database için
 tools/                  geliştirme araçları (yayına etkisi yok)
 ```
 
@@ -169,7 +201,7 @@ tools/                  geliştirme araçları (yayına etkisi yok)
 
 ```bash
 npm install      # sadece test aracı (playwright-core); uygulama bağımlılıksız
-npm run check    # sözdizimi, sürüm ikilisi, onclick bağlantıları, manifest, PIN özetleri
+npm run check    # sözdizimi, sürüm, onclick bağlantıları, manifest, PIN özetleri, Firebase kuralları
 npm test         # gerçek tarayıcıda uçtan uca: kalıcılık, rol ayrımı, çevrimdışı
 npm run bump     # yayın öncesi iki dosyadaki sürümü birlikte artırır
 npm run pin      # PIN kodlarını yayın için değiştirir

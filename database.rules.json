@@ -1,0 +1,64 @@
+// Güner · Sesli Kayıt — Realtime Database güvenlik kuralları.
+//
+// Nasıl yayınlanır (ikisinden biri):
+//   1) Firebase konsolu → Realtime Database → Rules → bu dosyanın tamamını
+//      yapıştır → Publish
+//   2) firebase deploy --only database        (Firebase CLI kuruluysa)
+//
+// Kurallar konsolda YAYINLANANA kadar geçerli değildir. Bu dosyanın repoda
+// durması tek başına hiçbir şeyi korumaz.
+//
+// NE YAPAR
+//   - Kök varsayılan olarak kapalı: tanımlanmamış hiçbir düğüm okunamaz/yazılamaz.
+//   - kayitlar yalnız giriş yapmış istemcilere açık.
+//   - Kayıtlar "yalnız ekleme": var olan bir kayıt DEĞİŞTİRİLEMEZ ve SİLİNEMEZ.
+//     Böylece birisi içeri girse bile geçmişi bozamaz, sadece yeni satır ekleyebilir.
+//   - Alan tipleri ve uzunlukları doğrulanır; devasa veri yazılıp kota şişirilemez.
+//
+// NE YAPMAZ  (önemli)
+//   Uygulama anonim girişle bağlanıyor. Anonim giriş herkese açık olduğu için
+//   "auth != null" pratikte "veritabanı adresini bilen herkes" demektir.
+//   Yani bu kurallar veriyi BOZULMAYA karşı korur, GİZLİLİK sağlamaz.
+//   Gizlilik için anonim giriş kapatılıp Firebase Authentication
+//   (e-posta/parola) ile kişi başı hesap açılmalı ve okuma izni
+//   auth.uid ile sınırlanmalı. Ayrıntı README'de.
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "kayitlar": {
+      ".read": "auth != null",
+
+      "$kayitId": {
+        // Yalnız ekleme: data.exists() ise (kayıt zaten varsa) yazma reddedilir.
+        // newData.exists() şartı da silmeyi engeller.
+        ".write": "auth != null && !data.exists() && newData.exists()",
+        ".validate": "newData.hasChildren(['id','type','createdAt'])",
+
+        "id":        { ".validate": "newData.isNumber()" },
+        "type":      { ".validate": "newData.isString() && newData.val().length <= 16" },
+        "text":      { ".validate": "newData.isString() && newData.val().length <= 5000" },
+        "createdAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "mudur":     { ".validate": "newData.isString() && newData.val().length <= 80" },
+        "mudurId":   { ".validate": "newData.isString() && newData.val().length <= 40" },
+
+        "items": {
+          "$sira": {
+            ".validate": "newData.hasChildren(['amount'])",
+            "amount":   { ".validate": "newData.isNumber()" },
+            "category": { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "known":    { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "grup":     { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "raw":      { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "anomali":  { ".validate": "newData.isBoolean()" },
+            // Uygulamaya ileride alan eklenirse senkron sessizce durmasın.
+            "$diger":   { ".validate": true }
+          }
+        },
+
+        "$diger": { ".validate": true }
+      }
+    }
+  }
+}
