@@ -173,6 +173,26 @@ try{
   check("tanımsız kalem silinmedi, veride duruyor",
     await page.evaluate(()=>allItems(NOTES,true).some(i=>!i.known&&i.amount===4321)));
   check("patron tanımsız kalemi öğretebiliyor",tanimsizTablo.includes("Tanımlanamayan kalemler"));
+  /* Sürüm ekranda görünmeli: telefonda eski yapıda kalınıp kalınmadığını
+     anlamanın tek yolu bu. */
+  check("sürüm tabloda yazıyor",
+    tanimsizTablo.includes(await page.evaluate(()=>APP_VERSION)),tanimsizTablo.slice(-80));
+  /* Hiçbir kalem tanınmadığında duyulan cümle gösterilmeli: aksi hâlde
+     kişi "Tanınan kalem yok" görüp neyin yanlış gittiğini anlayamıyor.
+     Kutuyu dolduran autoSaveVoice; içindeki gecikme yüzünden beklenir. */
+  await page.evaluate(()=>go('voice'));
+  await page.evaluate(()=>{document.getElementById('voiceText').value='zımbırtı 4321';autoSaveVoice();});
+  await page.waitForTimeout(1400);
+  const hicKutu=await page.evaluate(()=>document.getElementById('liveBox').innerHTML);
+  check("hiç tanınmayınca duyulan cümle gösteriliyor",
+    hicKutu.includes('zımbırtı 4321')&&hicKutu.includes('tanınmadı'),hicKutu.slice(0,160));
+
+  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';autoSaveVoice();});
+  await page.waitForTimeout(1400);
+  const iyiKutu=await page.evaluate(()=>document.getElementById('liveBox').innerHTML);
+  check("tanınınca duyulan cümle gösterilmiyor, kalem gösteriliyor",
+    iyiKutu.includes('Kaydedildi')&&iyiKutu.includes('Yakıt')&&!iyiKutu.includes('tanınmadı'),
+    iyiKutu.slice(0,160));
   check("patrona belge sorulmuyor",
     !(await page.isVisible("#belgeKat")),"belge penceresi patrona açıldı");
 

@@ -883,13 +883,24 @@ async function autoSaveVoice(){
     renderTable();
     if(lb){
       lb.style.display='block';
-      lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
-        +'<div style="font-weight:600;margin-bottom:6px">Kaydedildi</div>'
-        +(bilinen.length?bilinen.map(i=>'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+escapeHtml(i.known)+'</span><b>'+money(i.amount)+'</b></div>').join(''):'<div class="muted">Tanınan kalem yok.</div>')
-        /* Tanımlanamayan kalemler burada sayılmıyor; kayıtta duruyorlar ama
-           ekrana yansımıyorlar. */
-        +'</div>';
-      setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);
+      /* Tek tük tanınmayan kalem gösterilmiyor (istenmiyor). Ama HİÇBİR
+         kalem tanınmadıysa bu bir arıza: kullanıcı konuştu, karşılığında
+         bilgi vermeyen bir kutu gördü ve neyin yanlış gittiğini anlayamadı.
+         O durumda duyulan cümle olduğu gibi gösterilir — hem kişi yanlış
+         anlaşıldığını görür, hem hangi kelimenin sözlükte olmadığı belli
+         olur. Kayıt yine duruyor; patron öğretince kendiliğinden düzelir. */
+      lb.innerHTML=bilinen.length
+        ? '<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+          +'<div style="font-weight:600;margin-bottom:6px">Kaydedildi</div>'
+          +bilinen.map(i=>'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+escapeHtml(i.known)+'</span><b>'+money(i.amount)+'</b></div>').join('')
+          +'</div>'
+        : '<div style="background:#fdf6e6;border:1px solid var(--warn,#a9761e);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+          +'<div style="font-weight:600;margin-bottom:4px">Hiçbir kalem tanınmadı</div>'
+          +'<div class="muted" style="margin-bottom:6px">Duyulan:</div>'
+          +'<div style="background:#fffdf8;border:1px solid var(--line);border-radius:10px;padding:8px">'+escapeHtml(txt)+'</div>'
+          +'<div class="muted" style="margin-top:6px">Kategori adını (yakıt, boya, işçi, kira…) tutardan hemen önce ya da hemen sonra söyle.</div>'
+          +'</div>';
+      setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},bilinen.length?6000:14000);
     }
   },700);
 }
@@ -1406,7 +1417,10 @@ function renderTable(){
     });
     html+='</div>';
   }
-  box.innerHTML=html+ayarlar;
+  /* Sürüm ekranda görünsün: "düzeltildi" denen bir hata telefonda sürerken
+     eski yapıda mı kalındığını başka türlü anlamanın yolu yok. */
+  const surum='<div class="muted" style="text-align:center;padding:14px 0 4px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
+  box.innerHTML=html+ayarlar+surum;
 }
 async function teachFromRow(i){
   const sel=document.getElementById('lx'+i); if(!sel)return;
@@ -1984,7 +1998,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.6";
+const APP_VERSION="2026-08-08.7";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
