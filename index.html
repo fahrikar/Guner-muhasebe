@@ -353,6 +353,22 @@
     <svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><line x1="3.5" y1="10" x2="20.5" y2="10"/></svg>Çekler</button>
 </nav>
 
+<!-- Kayıt onay penceresi. Sözlükte olsun olmasın her kalem buradan geçer;
+     kişi adı/tutarı düzeltir, gereksizi siler, sözlükte olmayanın yönünü
+     seçer. Onaylanan her şey kaydedilir ve Excel'e girer. -->
+<div id="onayKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
+  <div style="background:#fffdf8;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto">
+    <div style="font-weight:700;font-size:16px">Kaydı onayla</div>
+    <div class="muted" id="onayDuyulan" style="margin:4px 0 10px"></div>
+    <div id="onaySatirlar"></div>
+    <div class="muted" id="onayUyari" style="min-height:18px;margin-top:8px"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" style="flex:1" onclick="onayla()">Kaydet</button>
+      <button class="btn sm ghost" onclick="onayVazgec()">Vazgeç</button>
+    </div>
+  </div>
+</div>
+
 <!-- Gider girişlerinde belge sorma penceresi. Kapatılamaz: belge girilmeden
      kayıt tamamlanmaz, iptal edilirse kayıt hiç oluşmaz. -->
 <div id="belgeKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
@@ -558,6 +574,7 @@ async function loadAll(){
   NOTES=await Store.get('notes',[]);
   PAYMENTS=await Store.get('payments',[]);
   LEXICON=await Store.get('lexicon',[]);
+  SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
   STOCK=await Store.get('stock',[]);
   MOVES=await Store.get('moves',[]);
@@ -585,6 +602,99 @@ function applyRole(){
   if(hr)hr.textContent=CURRENT.ad+(patron?'':' · sadece gider girişi');
   // müdür ana ekranda sadece mikrofonu görsün (kamera opsiyonel kalsın)
   document.body.classList.toggle('mudur',!patron);
+}
+
+/* ---------- KAYIT ONAYI ----------
+   Eskiden yalnız sözlükteki kategoriler kaydediliyor, gerisi sessizce
+   düşüyordu; sözlükte olmayan bir şey söyleyince ekran "Tanınan kalem yok"
+   diyor ve para kayboluyordu. Artık sözlük bir şart değil, yalnız bir
+   yardımcı: her kalem onaya sunulur, onaylanan her şey kaydedilir ve
+   Excel'e girer. Sözlükte olan kalemin yönü sözlükten gelir (değiştirilemez,
+   yoksa bir kişinin seçimi o kategorinin bütün geçmişini karşı tarafa
+   taşırdı); sözlükte olmayanın yönünü kişi seçer ve seçim saklanır. */
+let onayCoz=null, onayKalemler=[];
+function onaySor(items,duyulan){
+  return new Promise(res=>{
+    const kat=document.getElementById('onayKat');
+    if(!kat){res(null);return;}
+    onayCoz=res;
+    onayKalemler=(items||[]).map(i=>({
+      ad:i.known||i.category||'',
+      tutar:i.amount,
+      sozlukte:!!i.known,
+      yon:i.known?yonOf(i.known):'borc',
+      sil:false
+    }));
+    document.getElementById('onayDuyulan').textContent='Duyulan: '+duyulan;
+    document.getElementById('onayUyari').textContent='';
+    onayCiz();
+    kat.style.display='flex';
+  });
+}
+/* Yeniden çizmeden önce kutulardaki güncel değerler okunur; yoksa kişinin
+   yazdığı düzeltme, yön düğmesine basar basmaz siliniyordu. */
+function onayOku(){
+  onayKalemler.forEach((k,i)=>{
+    if(k.sil)return;
+    const a=document.getElementById('oa'+i), t=document.getElementById('ot'+i);
+    if(a)k.ad=a.value;
+    if(t){const n=toNumber(t.value); if(n!==null)k.tutar=n;}
+  });
+}
+function onayCiz(){
+  document.getElementById('onaySatirlar').innerHTML=onayKalemler.map((k,i)=>k.sil?'':
+     '<div style="padding:10px 0;border-top:1px solid var(--line)">'
+    +'<div class="row" style="align-items:center">'
+    +'<input id="oa'+i+'" value="'+escapeHtml(k.ad)+'" '
+      +'style="flex:1;min-width:110px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:14px">'
+    +'<input id="ot'+i+'" inputmode="decimal" value="'+k.tutar+'" '
+      +'style="width:96px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:14px;text-align:right">'
+    +'<span onclick="onaySil('+i+')" style="cursor:pointer;color:#b23b34;font-size:19px;padding:0 5px">×</span>'
+    +'</div>'
+    +(k.sozlukte
+       ? '<div class="muted" style="font-size:12px;margin-top:5px">'
+         +(k.yon==='alacak'?'Alacak (giren para)':'Borç (çıkan para)')+' · sözlükten</div>'
+       : '<div class="row" style="margin-top:6px">'
+         +'<button class="btn sm'+(k.yon==='borc'?'':' ghost')+'" onclick="onayYon('+i+',\'borc\')">Borç (çıkan)</button>'
+         +'<button class="btn sm'+(k.yon==='alacak'?'':' ghost')+'" onclick="onayYon('+i+',\'alacak\')">Alacak (giren)</button>'
+         +'</div>')
+    +'</div>').join('')
+    ||'<div class="muted" style="padding:10px 0">Kalem kalmadı.</div>';
+}
+function onayYon(i,y){ onayOku(); onayKalemler[i].yon=y; onayCiz(); }
+function onaySil(i){ onayOku(); onayKalemler[i].sil=true; onayCiz(); }
+function onayKapat(sonuc){
+  const kat=document.getElementById('onayKat'); if(kat)kat.style.display='none';
+  const f=onayCoz; onayCoz=null; if(f)f(sonuc);
+}
+function onayla(){
+  onayOku();
+  const kalan=onayKalemler.filter(k=>!k.sil&&String(k.ad).trim()&&k.tutar>0);
+  if(!kalan.length){
+    document.getElementById('onayUyari').textContent='Kaydedilecek kalem yok. Adı ve tutarı dolu en az bir satır gerekiyor.';
+    return;
+  }
+  onayKapat(kalan);
+}
+function onayVazgec(){
+  if(!confirm('Bu kayıt hiç oluşmayacak. Vazgeçilsin mi?'))return;
+  onayKapat(null);
+}
+/* Onaylanan satırları kayıt kalemine çevirir. Sözlükte eşleşen ad kanonik
+   hâline getirilir (rapor ve Excel'de aynı kategori dağılmasın); eşleşmeyen
+   ad olduğu gibi kalır ve yönü saklanır. */
+async function onaydanKalemler(kalan){
+  let degisti=false;
+  const items=kalan.map(k=>{
+    const ad=String(k.ad).trim();
+    const mc=matchCategory(ad);
+    const known=mc?mc.ad:ad;
+    if(!mc&&SERBEST_YON[known]!==k.yon){ SERBEST_YON[known]=k.yon; degisti=true; }
+    return {category:ad,amount:k.tutar,raw:ad+' '+k.tutar,
+            known:known,grup:mc?mc.grup:'Serbest'};
+  });
+  if(degisti)await Store.set('serbestYon',SERBEST_YON);
+  return items;
 }
 
 /* ---------- BELGE ZORUNLULUĞU ----------
@@ -849,19 +959,33 @@ async function autoSaveVoice(){
         setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
       return;
     }
-    const items=parseItems(txt);
-    const bilinen=items.filter(i=>i.known), bilinmeyen=items.filter(i=>!i.known);
+    const cozum=parseItems(txt);
+    const iptal=(baslik,aciklama)=>{
+      if(lb){lb.style.display='block';
+        lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+          +'<div style="font-weight:600">'+baslik+'</div>'
+          +'<div class="muted" style="margin-top:4px">'+aciklama+'</div></div>';
+        setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
+    };
+    if(!cozum.length){
+      iptal('Tutar bulunamadı','Duyulan: '+escapeHtml(txt)+' — içinde rakam geçmiyor.');
+      return;
+    }
+    /* Her kalem onaydan geçer; sözlükte olup olmaması kaydı engellemez. */
+    const onaylanan=await onaySor(cozum,txt);
+    if(!onaylanan){
+      iptal('Kaydedilmedi','Metin duruyor, tekrar kaydedebilirsin.');
+      return;
+    }
+    const items=await onaydanKalemler(onaylanan);
+    const bilinen=items;
     /* Belge sorulacaksa kayıt ondan SONRA oluşturulur; vazgeçilirse hiç
        oluşmaz. Söylenen metin kutuda kalır ki baştan konuşmak gerekmesin. */
     let belge=null;
     if(belgeGerekir(items)){
       belge=await belgeSor(items);
       if(!belge){
-        if(lb){lb.style.display='block';
-          lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
-            +'<div style="font-weight:600">Kaydedilmedi</div>'
-            +'<div class="muted" style="margin-top:4px">Gider girişi için belge gerekiyor. Metin duruyor, tekrar kaydedebilirsin.</div></div>';
-          setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
+        iptal('Kaydedilmedi','Gider girişi için belge gerekiyor. Metin duruyor, tekrar kaydedebilirsin.');
         return;
       }
     }
@@ -883,24 +1007,13 @@ async function autoSaveVoice(){
     renderTable();
     if(lb){
       lb.style.display='block';
-      /* Tek tük tanınmayan kalem gösterilmiyor (istenmiyor). Ama HİÇBİR
-         kalem tanınmadıysa bu bir arıza: kullanıcı konuştu, karşılığında
-         bilgi vermeyen bir kutu gördü ve neyin yanlış gittiğini anlayamadı.
-         O durumda duyulan cümle olduğu gibi gösterilir — hem kişi yanlış
-         anlaşıldığını görür, hem hangi kelimenin sözlükte olmadığı belli
-         olur. Kayıt yine duruyor; patron öğretince kendiliğinden düzelir. */
-      lb.innerHTML=bilinen.length
-        ? '<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
-          +'<div style="font-weight:600;margin-bottom:6px">Kaydedildi</div>'
-          +bilinen.map(i=>'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+escapeHtml(i.known)+'</span><b>'+money(i.amount)+'</b></div>').join('')
-          +'</div>'
-        : '<div style="background:#fdf6e6;border:1px solid var(--warn,#a9761e);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
-          +'<div style="font-weight:600;margin-bottom:4px">Hiçbir kalem tanınmadı</div>'
-          +'<div class="muted" style="margin-bottom:6px">Duyulan:</div>'
-          +'<div style="background:#fffdf8;border:1px solid var(--line);border-radius:10px;padding:8px">'+escapeHtml(txt)+'</div>'
-          +'<div class="muted" style="margin-top:6px">Kategori adını (yakıt, boya, işçi, kira…) tutardan hemen önce ya da hemen sonra söyle.</div>'
-          +'</div>';
-      setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},bilinen.length?6000:14000);
+      /* Onaydan geçtiği için burada her kalem kayıtlıdır; "tanınmadı" diye
+         bir durum kalmadı. */
+      lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+        +'<div style="font-weight:600;margin-bottom:6px">Kaydedildi</div>'
+        +bilinen.map(i=>'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+escapeHtml(i.known)+'</span><b>'+money(i.amount)+'</b></div>').join('')
+        +'</div>';
+      setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);
     }
   },700);
 }
@@ -1127,9 +1240,15 @@ const CATEGORY_MAP=[
 /* Yön kayıtlarda saklanmıyor, kategoriden okunuyor: eski kayıtlar da doğru
    tarafa düşer ve bir kategorinin yönü düzeltilince geçmiş kendiliğinden
    düzelir. Tanımsız kalem hiçbir tarafa yazılmaz (Excel'e de girmiyor). */
+/* Sözlükte olmayan (serbest) kategorilerin yönü burada tutulur: onay
+   ekranında kişi hangi tarafı seçtiyse o. Sözlükteki kategoriler için
+   sözlük geçerli kalır — bir kategorinin yönü düzeltilince geçmişin
+   kendiliğinden düzelmesi özelliği korunuyor. */
+let SERBEST_YON={};
 function yonOf(kategoriAdi){
   const c=CATEGORY_MAP.find(x=>x.ad===kategoriAdi);
-  return c&&c.yon==='alacak'?'alacak':'borc';
+  if(c)return c.yon==='alacak'?'alacak':'borc';
+  return SERBEST_YON[kategoriAdi]==='alacak'?'alacak':'borc';
 }
 const YON_AD={borc:'Borç',alacak:'Alacak'};
 /* Tanınan kalemleri borç/alacak diye ayırır ve toplamlarını verir. */
@@ -1267,7 +1386,11 @@ async function saveNote(type){
   const el=type==='voice'?'voiceText':'ocrText';
   const txt=document.getElementById(el).value.trim();
   if(!txt){alert('Kaydedilecek metin yok.');return;}
-  const items=parseItems(txt);
+  const cozum=parseItems(txt);
+  if(!cozum.length){alert('Metinde tutar bulunamadı.');return;}
+  const onaylanan=await onaySor(cozum,txt);
+  if(!onaylanan)return;
+  const items=await onaydanKalemler(onaylanan);
   let belge=null;
   if(belgeGerekir(items)){
     belge=await belgeSor(items);
@@ -1280,8 +1403,7 @@ async function saveNote(type){
   pushCloudNote(yeni);
   document.getElementById(el).value='';
   // Tanımlanamayan kalemler kullanıcıya gösterilmiyor (kayıtta duruyorlar).
-  const bil=items.filter(i=>i.known);
-  alert(bil.length?'✅ '+bil.length+' kalem tanındı:\n'+bil.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'):'✅ Kaydedildi.');
+  alert('✅ '+items.length+' kalem kaydedildi:\n'+items.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'));
 }
 function renderNotes(){ renderTable(); }
 function renderTable(){
@@ -1577,7 +1699,8 @@ async function applyStockCommand(cmd){
 /* ---------- YEDEKLEME / GERİ YÜKLEME ---------- */
 function backupAll(){
   const data={surum:1,tarih:new Date().toISOString(),
-    notes:NOTES,payments:PAYMENTS,stock:STOCK,moves:MOVES,lexicon:LEXICON,settings:SETTINGS};
+    notes:NOTES,payments:PAYMENTS,stock:STOCK,moves:MOVES,lexicon:LEXICON,
+    serbestYon:SERBEST_YON,settings:SETTINGS};
   saveBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),'Yedek_'+todayStr()+'.json');
   speak('Yedek alındı.','kayit');
 }
@@ -1590,9 +1713,13 @@ async function restoreBackup(ev){
       if(!confirm('Yedek yüklenecek ve mevcut veriler değişecek.\n\nYedek tarihi: '+(d.tarih?fmt(d.tarih):'bilinmiyor')+'\nKayıt: '+((d.notes||[]).length)+' · Stok: '+((d.stock||[]).length)+'\n\nDevam edilsin mi?'))return;
       NOTES=d.notes||[]; PAYMENTS=d.payments||[]; STOCK=d.stock||[]; MOVES=d.moves||[];
       LEXICON=d.lexicon||[]; SETTINGS=Object.assign({},SES_VARSAYILAN,d.settings||{});
+      /* Serbest kategorilerin yönü de yedekten gelmeli; gelmezse eski
+         yedekler yüklenince o kalemler borç tarafına düşer. */
+      SERBEST_YON=d.serbestYon||{};
       await Store.set('notes',NOTES); await Store.set('payments',PAYMENTS);
       await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
+      await Store.set('serbestYon',SERBEST_YON);
       renderTable(); alert('✅ Yedek geri yüklendi.');
     }catch(e){ alert('Yedek okunamadı: '+e.message); }
   };
@@ -1998,7 +2125,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.7";
+const APP_VERSION="2026-08-08.8";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

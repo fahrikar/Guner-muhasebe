@@ -69,6 +69,14 @@ async function setupPins(temizle){
     applyPinOverrides();
   },[TEST_PATRON,TEST_MUDUR,!!temizle]);
 }
+/* Her kayıt artık onay penceresinden geçiyor. Kaydetme çağrıları
+   BEKLENMEDEN yapılmalı (pencere açıkken söz veren promise askıda kalır),
+   sonra bu yardımcı Kaydet'e basar. */
+async function onayVer(){
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  await page.evaluate(()=>onayla());
+  await page.waitForTimeout(150);
+}
 async function login(pin,hatirla=false){
   if(await page.isVisible("#rememberMe"))await page.setChecked("#rememberMe",hatirla);
   await page.fill("#pinInput",pin);
@@ -139,7 +147,8 @@ try{
 
   /* sesli kayıt yerine metinden kayıt — biri borç, biri alacak tarafına */
   await page.evaluate(()=>{document.getElementById('voiceText').value='emanet beş bin, yakıt 2.500, tahsilat 12.000';});
-  await page.evaluate(()=>saveNote('voice'));
+  page.evaluate(()=>{saveNote('voice');});
+  await onayVer();
   await page.waitForTimeout(300);
   await page.evaluate(()=>go('notes'));
   const tablo=await page.textContent("#tableBox");
@@ -159,40 +168,70 @@ try{
   check("net = alacak − borç",yon.net===yon.tAlacak-yon.tBorc,JSON.stringify(yon));
   check("borç ve alacak tek toplamda karışmıyor",yon.tBorc>0&&yon.tAlacak>0&&yon.net!==yon.tBorc+yon.tAlacak);
 
-  /* --- tanımlanamayan kalemler ekranda görünmüyor --- */
-  await page.evaluate(async()=>{
-    document.getElementById('voiceText').value='zımbırtı 4321';
-    await saveNote('voice');
-  });
-  await page.waitForTimeout(200);
+  /* --- sözlükte olmayan kalem de kaydediliyor ---
+     Asıl dert buydu: sözlükte olmayan bir şey söylenince kayıt sessizce
+     düşüyor, ekran "Tanınan kalem yok" diyordu. Artık sözlük bir şart
+     değil; onaylanan her kalem kaydediliyor ve tabloya giriyor. */
+  page.evaluate(()=>{document.getElementById('voiceText').value='zımbırtı 4321';saveNote('voice');});
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  check("onay penceresi duyulan cümleyi gösteriyor",
+    (await page.textContent("#onayDuyulan")).includes('zımbırtı 4321'));
+  check("sözlükte olmayan kalemin yönü seçilebiliyor",
+    await page.isVisible('#onaySatirlar button:has-text("Alacak (giren)")'));
+  await page.evaluate(()=>onayla());
+  await page.waitForTimeout(250);
   await page.evaluate(()=>{go('notes');renderTable();});
-  const tanimsizTablo=await page.textContent("#tableBox");
-  check("tanımsız kalem tabloda görünmüyor",
-    !tanimsizTablo.includes("TANIMSIZ")&&!tanimsizTablo.includes("4.321"),tanimsizTablo.slice(0,140));
-  // allItems ikinci parametre olmadan tanımsızları elemiş sayılır; burada hepsi lazım
-  check("tanımsız kalem silinmedi, veride duruyor",
-    await page.evaluate(()=>allItems(NOTES,true).some(i=>!i.known&&i.amount===4321)));
-  check("patron tanımsız kalemi öğretebiliyor",tanimsizTablo.includes("Tanımlanamayan kalemler"));
+  const serbestTablo=await page.textContent("#tableBox");
+  check("sözlükte olmayan kalem tabloya girdi",
+    serbestTablo.includes("Zımbırtı")&&serbestTablo.includes("4.321"),serbestTablo.slice(0,160));
+  check("sözlükte olmayan kalem Excel'e de girer (known dolu)",
+    await page.evaluate(()=>allItems(NOTES).some(i=>i.known==='Zımbırtı'&&i.amount===4321)));
+
+  /* Seçilen yön saklanmalı: aksi hâlde serbest kalem her zaman borç
+     tarafına düşer ve kişi seçse bile bir şey değişmez. */
+  page.evaluate(()=>{document.getElementById('voiceText').value='hurda satışı 3000';saveNote('voice');});
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  await page.evaluate(()=>{onayYon(0,'alacak');onayla();});
+  await page.waitForTimeout(250);
+  check("seçilen yön kaydediliyor",
+    await page.evaluate(()=>yonOf('Hurda satışı')==='alacak'),
+    await page.evaluate(()=>JSON.stringify(SERBEST_YON)));
+  await page.evaluate(()=>{go('notes');renderTable();});
+  check("alacak seçilen serbest kalem alacak tarafında",
+    await page.evaluate(()=>yonAyir(allItems(NOTES)).alacak.some(i=>i.known==='Hurda satışı')));
+
+  /* Onay penceresinde satır silinebilmeli ve hepsi silinince kayıt olmamalı. */
+  const oncekiN=await page.evaluate(()=>NOTES.length);
+  page.evaluate(()=>{document.getElementById('voiceText').value='saçmalık 111';saveNote('voice');});
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  await page.evaluate(()=>{onaySil(0);onayla();});
+  await page.waitForTimeout(200);
+  check("bütün satırlar silinince uyarı veriliyor, kayıt oluşmuyor",
+    (await page.textContent("#onayUyari")).includes("Kaydedilecek kalem yok")
+    &&await page.evaluate(n=>NOTES.length===n,oncekiN));
+  await page.evaluate(()=>onayKapat(null));
+  await page.waitForTimeout(150);
+
   /* Sürüm ekranda görünmeli: telefonda eski yapıda kalınıp kalınmadığını
      anlamanın tek yolu bu. */
   check("sürüm tabloda yazıyor",
-    tanimsizTablo.includes(await page.evaluate(()=>APP_VERSION)),tanimsizTablo.slice(-80));
-  /* Hiçbir kalem tanınmadığında duyulan cümle gösterilmeli: aksi hâlde
-     kişi "Tanınan kalem yok" görüp neyin yanlış gittiğini anlayamıyor.
-     Kutuyu dolduran autoSaveVoice; içindeki gecikme yüzünden beklenir. */
-  await page.evaluate(()=>go('voice'));
-  await page.evaluate(()=>{document.getElementById('voiceText').value='zımbırtı 4321';autoSaveVoice();});
-  await page.waitForTimeout(1400);
-  const hicKutu=await page.evaluate(()=>document.getElementById('liveBox').innerHTML);
-  check("hiç tanınmayınca duyulan cümle gösteriliyor",
-    hicKutu.includes('zımbırtı 4321')&&hicKutu.includes('tanınmadı'),hicKutu.slice(0,160));
+    serbestTablo.includes(await page.evaluate(()=>APP_VERSION)),serbestTablo.slice(-80));
 
-  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';autoSaveVoice();});
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';autoSaveVoice();});
+  await onayVer();
   await page.waitForTimeout(1400);
   const iyiKutu=await page.evaluate(()=>document.getElementById('liveBox').innerHTML);
-  check("tanınınca duyulan cümle gösterilmiyor, kalem gösteriliyor",
-    iyiKutu.includes('Kaydedildi')&&iyiKutu.includes('Yakıt')&&!iyiKutu.includes('tanınmadı'),
-    iyiKutu.slice(0,160));
+  check("kayıt kutusu kalemi gösteriyor",
+    iyiKutu.includes('Kaydedildi')&&iyiKutu.includes('Yakıt'),iyiKutu.slice(0,160));
+
+  /* Rakam geçmeyen cümle: onay penceresi hiç açılmamalı, kayıt olmamalı. */
+  const oncekiN2=await page.evaluate(()=>NOTES.length);
+  await page.evaluate(()=>{document.getElementById('voiceText').value='merhaba nasılsın';autoSaveVoice();});
+  await page.waitForTimeout(1200);
+  check("rakamsız cümlede onay penceresi açılmıyor",!(await page.isVisible("#onayKat")));
+  check("rakamsız cümle kaydedilmiyor",await page.evaluate(n=>NOTES.length===n,oncekiN2));
+
   check("patrona belge sorulmuyor",
     !(await page.isVisible("#belgeKat")),"belge penceresi patrona açıldı");
 
@@ -204,7 +243,8 @@ try{
 
   // 1) gider girişi belge penceresini açar ve vazgeçilirse kayıt oluşmaz
   const oncekiSayi=await page.evaluate(()=>NOTES.length);
-  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  await onayVer();
   await page.waitForTimeout(300);
   check("müdürün gider girişinde belge penceresi açılıyor",await page.isVisible("#belgeKat"));
   check("belge türü seçilmeden kaydedilmiyor",await page.evaluate(()=>{
@@ -217,7 +257,8 @@ try{
     await page.evaluate(n=>NOTES.length===n,oncekiSayi));
 
   // 2) belge verilince kaydediliyor ve belge kayda işleniyor
-  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  await onayVer();
   await page.waitForTimeout(300);
   await page.evaluate(()=>{
     belgeTurSec(document.querySelector('#belgeTurler button[data-tur="Dekont"]'));
@@ -229,7 +270,8 @@ try{
     await page.evaluate(()=>NOTES.some(n=>n.belgeTur==='Dekont'&&n.belgeNo==='4821')));
 
   // 3) tahsilat (alacak) gider değil — belge sorulmamalı
-  await page.evaluate(()=>{document.getElementById('voiceText').value='tahsilat 700';saveNote('voice');});
+  page.evaluate(()=>{document.getElementById('voiceText').value='tahsilat 700';saveNote('voice');});
+  await onayVer();
   await page.waitForTimeout(300);
   check("gelir girişinde belge sorulmuyor",!(await page.isVisible("#belgeKat")));
 
@@ -267,14 +309,20 @@ try{
     excelYon.slice(0,200));
 
   /* --- kayıt sonrası sesli teyit kapalı --- */
-  const konusma=await page.evaluate(async()=>{
-    const soylenen=[];
-    const orj=window.speechSynthesis&&window.speechSynthesis.speak;
-    if(window.speechSynthesis)window.speechSynthesis.speak=u=>soylenen.push(u.text);
+  /* saveNote onay penceresini açıp bekliyor; beklenmeden çağrılır, konuşma
+     dinleyicisi pencere kapandıktan sonra okunur. */
+  await page.evaluate(()=>{
+    window.__soylenen=[];
+    window.__orjSpeak=window.speechSynthesis&&window.speechSynthesis.speak;
+    if(window.speechSynthesis)window.speechSynthesis.speak=u=>window.__soylenen.push(u.text);
     document.getElementById('voiceText').value='kira 3.000';
-    await saveNote('voice');
-    if(window.speechSynthesis&&orj)window.speechSynthesis.speak=orj;
-    return soylenen;
+    saveNote('voice');
+  });
+  await onayVer();
+  await page.waitForTimeout(300);
+  const konusma=await page.evaluate(()=>{
+    if(window.speechSynthesis&&window.__orjSpeak)window.speechSynthesis.speak=window.__orjSpeak;
+    return window.__soylenen;
   });
   check("kayıttan sonra sesli teyit yok",konusma.length===0,JSON.stringify(konusma));
   await page.waitForTimeout(200);
