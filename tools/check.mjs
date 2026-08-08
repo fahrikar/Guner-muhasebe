@@ -164,6 +164,23 @@ else ok("dış script'lerin hepsi defer");
       ["emanet beş bin, yakıt 2.500, tahsilat 12.000",
                                            [["Emanet",5000],["Yakıt",2500],["Tahsilat",12000]]],
       ["2.500,75 nakliye",                 [["Nakliye",2500.75]]],
+      /* 'cek' anahtarı gelecek zaman ekine takılıyordu: "ödeyecek" çek
+         kaydına dönüşüyordu. Anahtar artık kelime başında aranıyor. */
+      ["ödeyecek 5000",                    [[null,5000]]],
+      ["ödeyeceğim 1500",                  [[null,1500]]],
+      ["gelecek hafta boya 2000",          [["Boya Hammaddesi",2000]]],
+      ["çek 5000",                         [["Çek",5000]]],
+      ["çekle ödedim 3000",                [["Çek",3000]]],
+      ["cek 1200",                         [["Çek",1200]]],
+      /* Tarihler tutar sanılıyordu: "ayın 26'sı" 26 ₺ olup asıl tutarı da
+         sahipsiz bırakıyordu. */
+      ["ayın 26sı fabrika gideri 5000",    [["Fabrika Gideri",5000]]],
+      ["ayın 26 sı boya 2000",             [["Boya Hammaddesi",2000]]],
+      ["ayın 26sında kira 15 bin",         [["Kira",15000]]],
+      ["Ayın 26sı yakıt 900",              [["Yakıt",900]]],
+      ["26 ocak yakıt 900",                [["Yakıt",900]]],
+      ["26 ocakta nakliye 1500",           [["Nakliye",1500]]],
+      ["26.01.2026 elektrik 4200",         [["Elektrik",4200]]],
     ];
     try{
       // LEXICON dilimin içinde zaten tanımlı (öğrenen sözlük, boş başlar).

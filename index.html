@@ -997,9 +997,23 @@ function lev(a,b){
   }
   return prev[n];
 }
+/* Anahtar kelime, metinde bir kelimenin BAŞINDA mı geçiyor?
+   Düz "içeriyor mu" kontrolü kısa anahtarlarda felaket: 'cek' anahtarı
+   "ödeyecek", "gelecek", "verecek" gibi her gelecek zaman ekine takılıyor ve
+   ödeme sözü çek kaydına dönüşüyordu. Kelime başı şartı Türkçe eklerini
+   bozmuyor — "çekle", "çekten", "çeki" hâlâ tanınır, "ödeyecek" tanınmaz. */
+function kelimeBasinda(t,k){
+  let i=t.indexOf(k);
+  while(i>=0){
+    const onceki=i===0?'':t.charAt(i-1);
+    if(!onceki||!/[0-9a-zçğıöşü]/.test(onceki))return true;
+    i=t.indexOf(k,i+1);
+  }
+  return false;
+}
 function fuzzyHas(text,key){
   const t=trLower(text), k=trLower(key);
-  if(t.includes(k))return k.length;
+  if(kelimeBasinda(t,k))return k.length;
   if(k.length<4)return 0;
   const words=t.split(/\s+/);
   const kw=k.split(/\s+/);
@@ -1145,9 +1159,25 @@ function toNumber(str){
   else if(hasDot){ r=/\.\d{3}(\.|$)/.test(r)?r.replace(/\./g,''):r; }
   const n=parseFloat(r); return isNaN(n)?null:n;
 }
+/* Tarihler tutar sanılıyordu: "ayın 26'sı" 26 ₺ diye kaydediliyor, üstelik
+   kategoriyi de kapıp asıl tutarı sahipsiz bırakıyordu. Tarih kalıpları
+   sayı taramasından ÖNCE metinden çıkarılır.
+   Binlik ayraçlı tutarlara dokunmaz: "5.000"de ikinci parça iki haneden
+   uzun olduğu için gün.ay kalıbı tutmaz. */
+const AY_ADLARI='ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|'
+               +'ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik';
+/* Sondaki sınır \b ile yazılamaz: JS'te \b yalnız ASCII harfe bakar, "26sı"
+   sonundaki 'ı' kelime karakteri sayılmadığı için kalıp hiç tutmuyordu. */
+const HARF='0-9a-zA-ZçğıöşüÇĞİÖŞÜ';
+const TARIH_KALIBI=new RegExp(
+   'ay[ıi]n\\s*\\d{1,2}\\s*[\'’]?\\s*(?:s[ıiu]|s[ıi]n[dt][ae]|[ıi]n[dt][ae]|[ıi]nc[ıi]|inci)?(?!['+HARF+'])'
+  +'|\\b\\d{1,2}\\s*[./]\\s*\\d{1,2}(?:\\s*[./]\\s*\\d{2,4})?\\b'
+  +'|\\b\\d{1,2}\\s*(?:'+AY_ADLARI+')[a-zçğıöşü]*(?!['+HARF+'])'
+  ,'gi');
 function parseItems(text){
   const FILLER=/(^|\s)(bugün|dün|yarın|oldu|olsun|ödendi|ödedim|aldım|verdim|geldi|gitti|tane|adet|toplam|için|tl|lira|₺)(?=\s|$)/gi;
-  const clean=wordsToNumbers(text).replace(/örneğin|ayrıca|bir de/gi,' ').replace(/\s+ve\s+/gi,' ')
+  const clean=wordsToNumbers(text).replace(TARIH_KALIBI,' ')
+                  .replace(/örneğin|ayrıca|bir de/gi,' ').replace(/\s+ve\s+/gi,' ')
                   .replace(/[,;:!?]\s/g,' ').replace(/\s+/g,' ').trim();
   /* Önce bütün tutarlar bulunur, aralarındaki metin ayrı tutulur. Eskiden
      kalıp "metin + sayı" idi; "5000 fabrika gideri" gibi tutarın önde
@@ -1954,7 +1984,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.5";
+const APP_VERSION="2026-08-08.6";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
