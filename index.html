@@ -2,7 +2,10 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- Yakınlaştırma engellenmiyor: tutarları okumak için büyütmek gerekebiliyor. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3ede1">
 <title>Sesli & Görsel Kayıt</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -346,24 +349,53 @@ function initFirebase(){
   }catch(e){ console.warn('Firebase yok:',e); return false; }
 }
 
+function isPatron(){ return !!CURRENT&&CURRENT.rol==='patron'; }
+
+/* Giriş ekranını göster, gerisini kapat. Alt menü de gizlenir; aksi hâlde
+   PIN sorulmadan sekmelere dokunulabiliyordu. */
+function showLogin(){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('login').style.display='block';
+  document.querySelector('nav').style.display='none';
+  document.getElementById('hdrTitle').textContent='Sesli & Görsel Kayıt';
+  document.getElementById('hdrRight').textContent='';
+}
 function doLogin(){
   const pin=document.getElementById('pinInput').value.trim();
   const r=ROLES[pin];
   const st=document.getElementById('loginStatus');
-  if(!r){ st.textContent='Hatalı PIN.'; return; }
+  if(!r){ st.textContent='Hatalı PIN.'; document.getElementById('pinInput').value=''; return; }
   CURRENT=r;
+  st.textContent='';
+  document.getElementById('pinInput').value='';
   document.getElementById('login').style.display='none';
   document.getElementById('login').classList.remove('active');
+  document.querySelector('nav').style.display='flex';
   applyRole();
-  startCloud();
-  go('home');
+  loadAll().then(()=>{
+    startCloud();
+    checkReminders();
+    go('home');
+  });
+}
+/* Kalıcı veriyi diskten okur. Çıkışta bellek temizlendiği için her girişte
+   yeniden çağrılmalı, yoksa ikinci kullanıcı boş ekran görür. */
+async function loadAll(){
+  NOTES=await Store.get('notes',[]);
+  PAYMENTS=await Store.get('payments',[]);
+  LEXICON=await Store.get('lexicon',[]);
+  SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
+  STOCK=await Store.get('stock',[]);
+  MOVES=await Store.get('moves',[]);
 }
 function logout(){
-  CURRENT=null;
-  document.getElementById('pinInput').value='';
-  document.getElementById('loginStatus').textContent='';
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  const lg=document.getElementById('login'); lg.style.display='block';
+  stopCloud();
+  /* Ekranda kalan veri bir sonraki kullanıcıya görünmesin: patron çıkıp
+     müdür girdiğinde birleştirilmiş bulut kayıtları ortada kalıyordu. */
+  CURRENT=null; NOTES=[]; PAYMENTS=[]; STOCK=[]; MOVES=[];
+  stopVoice();
+  stopCam();
+  showLogin();
 }
 
 /* Role göre arayüzü kısıtla */
@@ -381,19 +413,27 @@ function applyRole(){
 }
 
 /* Bulut senkron: müdür yazar, patron dinler */
+let cloudRef=null;
 function startCloud(){
   if(!cloudOn){
     document.getElementById('cloudWarn').textContent='';
     return;
   }
-  if(CURRENT.rol==='patron'){
+  stopCloud();
+  if(isPatron()){
     // tüm müdür girdilerini canlı dinle
-    db.ref('kayitlar').on('value',snap=>{
+    cloudRef=db.ref('kayitlar');
+    cloudRef.on('value',snap=>{
       const val=snap.val()||{};
       const cloudNotes=Object.keys(val).map(k=>val[k]).filter(Boolean);
       mergeCloudNotes(cloudNotes);
     });
   }
+}
+/* Dinleyici bırakılmazsa çıkış-giriş her tekrarında üst üste biniyor ve
+   müdür oturumunda patronun kayıtları akmaya devam ediyordu. */
+function stopCloud(){
+  if(cloudRef){ try{cloudRef.off();}catch(e){} cloudRef=null; }
 }
 function mergeCloudNotes(cloudNotes){
   // yerel + bulut birleştir (id'ye göre tekilleştir)
@@ -412,18 +452,63 @@ async function pushCloudNote(note){
   }catch(e){ console.warn('bulut yazılamadı',e); }
 }
 
-/* ---------- storage (kalıcı; yoksa hafızada) ---------- */
+/* ---------- storage (kalıcı; yoksa hafızada) ----------
+   DİKKAT: burada eskiden `window.storage` aranıyordu. Tarayıcıda böyle bir
+   API yok; koşul hiçbir zaman tutmuyor, her şey `mem` nesnesinde kalıyor ve
+   sayfa kapanınca siliniyordu. Yani "veriler telefonda saklanıyor" yazan
+   uygulama aslında hiçbir şeyi saklamıyordu. Artık localStorage kullanılıyor;
+   `mem` yalnızca localStorage'ın kapalı olduğu durumlar için yedek. */
 const mem={};
+const STORE_PREFIX='gm_';
+let storageBroken=false;
+function storageWarn(){
+  if(storageBroken)return;
+  storageBroken=true;
+  banner('⚠️ Bu tarayıcıda kalıcı kayıt kapalı (gizli sekme ya da depolama dolu). '
+        +'Girdiklerin sayfa kapanınca kaybolur — "Yedek Al" ile dosyaya kaydet.');
+}
 const Store={
-  async get(k,d){ try{ if(window.storage){const r=await window.storage.get(k); return r?JSON.parse(r.value):d;} }catch(e){} return mem[k]!==undefined?mem[k]:d; },
-  async set(k,v){ mem[k]=v; try{ if(window.storage){await window.storage.set(k,JSON.stringify(v));} }catch(e){} }
+  async get(k,d){
+    try{
+      const v=localStorage.getItem(STORE_PREFIX+k);
+      if(v!==null)return JSON.parse(v);
+    }catch(e){ storageWarn(); }
+    return mem[k]!==undefined?mem[k]:d;
+  },
+  async set(k,v){
+    mem[k]=v;
+    try{ localStorage.setItem(STORE_PREFIX+k,JSON.stringify(v)); return true; }
+    catch(e){ storageWarn(); return false; }
+  }
 };
 let NOTES=[], PAYMENTS=[];
 
+/* Ekranın üstünde kalıcı uyarı şeridi (alert gibi akışı kesmez). */
+function banner(text){
+  let b=document.getElementById('appBanner');
+  if(!b){
+    b=document.createElement('div');
+    b.id='appBanner'; b.className='banner';
+    b.style.cssText='position:sticky;top:56px;z-index:4;margin:10px 14px';
+    document.querySelector('main').prepend(b);
+  }
+  b.textContent=text;
+  b.style.display='block';
+}
+
 /* ---------- navigation ---------- */
 const titles={home:'Sesli & Görsel Kayıt',voice:'Sesli Komut',camera:'Kamera',notes:'Tablo',reports:'Rapor',stock:'Stok Takibi',payments:'Çek Ödemeleri'};
+/* Sadece patronun görmesi gereken ekranlar. Menüyü gizlemek yetmez:
+   go() doğrudan çağrılabildiği için erişim burada da kapatılır. */
+const PATRON_ONLY=['reports','stock','payments'];
 function go(id){
+  /* Giriş yapılmadan hiçbir ekran açılmasın. Eskiden #login satır içi
+     display:block taşıdığı için .screen kuralı onu gizleyemiyordu; alt
+     menüden bir sekmeye dokunmak PIN'i tamamen atlıyordu. */
+  if(!CURRENT){ showLogin(); return; }
+  if(!isPatron()&&PATRON_ONLY.includes(id))id='home';
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('login').style.display='none';
   document.getElementById(id).classList.add('active');
   document.getElementById('hdrTitle').textContent=titles[id]||'Kayıt';
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('on'));
@@ -433,7 +518,7 @@ function go(id){
   if(id==='reports')report(curReport);
   if(id==='stock')renderStock();
   if(id==='payments')renderPayments();
-  if(id==='camera')startCam();
+  if(id==='camera')startCam(); else stopCam();
 }
 
 /* ---------- SESLİ KOMUT (STT) ---------- */
@@ -562,10 +647,20 @@ async function autoSaveVoice(){
 let stream=null;
 async function startCam(){
   const st=document.getElementById('camStatus');
+  if(stream)return;                       // ikinci kez açınca eski akım sızıyordu
   try{
     stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
     document.getElementById('cam').srcObject=stream; st.textContent='';
   }catch(e){ st.textContent='⚠️ Kameraya erişilemedi: '+e.message+' — izin ver ya da galeriden yükle.'; }
+}
+/* Kamera ekranından çıkınca akım kapatılmazsa telefonun kamera ışığı yanık
+   kalıyor ve pil tükeniyordu. */
+function stopCam(){
+  if(!stream)return;
+  try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+  stream=null;
+  const v=document.getElementById('cam');
+  if(v)v.srcObject=null;
 }
 async function captureOCR(){
   const v=document.getElementById('cam');
@@ -849,7 +944,6 @@ function renderTable(){
     tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||''})));
   if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
   const toplam=rows.filter(r=>r.taninan).reduce((a,b)=>a+b.tutar,0);
-  const unk=rows.filter(r=>!r.taninan).length;
   let html='<div class="card" style="padding:0;overflow:hidden">'
    +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
    +'<thead><tr style="background:#f2ebdd">'
@@ -908,21 +1002,28 @@ function renderTable(){
       html+='<div style="padding:10px 0;border-top:1px solid var(--line)">'
         +'<div style="font-weight:500;margin-bottom:8px">"'+escapeHtml(u)+'"</div>'
         +'<div class="row" style="align-items:center">'
-        +'<select id="lx'+i+'" style="flex:1;min-width:150px;padding:11px;border-radius:12px;border:1px solid var(--line);background:#fffdf8;font-size:14px">'+opts+'</select>'
-        +'<button class="btn sm" onclick="teachFromRow('+i+',\''+escapeHtml(u).replace(/'/g,"\\'")+'\')">Öğret</button>'
+        /* Kelime data- niteliğinde taşınır: onclick içine gömülen metin,
+           tırnak ya da ters bölü içerdiğinde JS'i bozuyordu. */
+        +'<select id="lx'+i+'" data-kelime="'+escapeHtml(u)+'" style="flex:1;min-width:150px;padding:11px;border-radius:12px;border:1px solid var(--line);background:#fffdf8;font-size:14px">'+opts+'</select>'
+        +'<button class="btn sm" onclick="teachFromRow('+i+')">Öğret</button>'
         +'</div></div>';
     });
     html+='</div>';
   }
   box.innerHTML=html;
 }
-async function teachFromRow(i,kelime){
+async function teachFromRow(i){
   const sel=document.getElementById('lx'+i); if(!sel)return;
+  const kelime=sel.dataset.kelime||'';
+  if(!kelime)return;
   await teachCategory(kelime,sel.value);
   speak(kelime+', '+sel.value+' olarak öğrenildi.','ogrenme');
 }
+/* Para kaydı siliniyor: yanlış dokunuş bir gideri sessizce yok ediyordu. */
 async function delRow(noteId,idx){
   const n=NOTES.find(x=>x.id===noteId); if(!n)return;
+  const it=(n.items||[])[idx]; if(!it)return;
+  if(!confirm('"'+(it.known||it.category)+' · '+money(it.amount)+'" silinsin mi?'))return;
   n.items.splice(idx,1);
   if(!n.items.length&&!n.text)NOTES=NOTES.filter(x=>x.id!==noteId);
   await Store.set('notes',NOTES); renderTable();
@@ -938,6 +1039,7 @@ function exportTableCSV(){
 function exportTable(){
   const its=allItems(NOTES);
   if(!its.length){alert('Tanımlı kalem yok.');return;}
+  if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
   const det=its.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount}));
   det.push({Tarih:'',Kategori:'TOPLAM',Grup:'','Tutar (₺)':its.reduce((a,b)=>a+b.amount,0)});
@@ -948,15 +1050,11 @@ function exportTable(){
   XLSX.utils.book_append_sheet(wb,ws2,'Özet');
   return writeWorkbook(wb,'Tablo_'+todayStr()+'.xlsx');
 }
-async function delNote(id){ NOTES=NOTES.filter(n=>n.id!==id); await Store.set('notes',NOTES); renderNotes(); }
-let allSel=false;
-function toggleAll(){ allSel=!allSel; document.querySelectorAll('#tableBox .check').forEach(c=>c.checked=allSel); }
-function selectedNotes(){
-  const ids=[...document.querySelectorAll('#notesList .check:checked')].map(c=>+c.dataset.id);
-  const sel=NOTES.filter(n=>ids.includes(n.id));
-  return sel.length?sel:NOTES;
-}
-function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+/* String olmayan değerlerde (undefined birim, sayısal miktar…) eskiden
+   TypeError atıp o ekranın çizimini yarıda kesiyordu. Tırnaklar da
+   kaçışlanır: metinler onclick="…" ve value="…" içine de basılıyor. */
+const ESC_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>ESC_MAP[c])}
 
 
 /* ---------- GÜVENLİ DOSYA İNDİRME ---------- */
@@ -970,6 +1068,19 @@ function saveBlob(blob,filename){
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1500);
     return true;
   }catch(e){ alert('Dosya indirilemedi: '+e.message); return false; }
+}
+/* Excel/PDF kütüphaneleri CDN'den geliyor; internet yokken tanımsız kalıyorlar.
+   Eskiden yalnız writeWorkbook kontrol ediyordu ama çağıranlar ondan ÖNCE
+   XLSX.utils.book_new() çalıştırdığı için düğmeler sessizce çöküyordu. */
+function xlsxHazir(){
+  if(typeof XLSX!=='undefined')return true;
+  alert('Excel kütüphanesi yüklenemedi (internet bağlantısı gerekir).\n\nSayfayı yenileyip tekrar dene, ya da "CSV" ile indir — CSV internet gerektirmez.');
+  return false;
+}
+function pdfHazir(){
+  if(typeof html2pdf!=='undefined')return true;
+  alert('PDF kütüphanesi yüklenemedi (internet bağlantısı gerekir). Word ya da CSV olarak indirebilirsin.');
+  return false;
 }
 function writeWorkbook(wb,filename){
   if(typeof XLSX==='undefined'){
@@ -993,33 +1104,9 @@ function exportCSV(rows,filename){
 }
 
 /* ---------- DIŞA AKTAR ---------- */
-function exportSelected(fmtType){
-  const list=selectedNotes();
-  if(!list.length){alert('Kayıt yok.');return;}
-  const title='Kayitlar_'+todayStr();
-  if(fmtType==='excel'){
-    const its=allItems(list), groups=groupItems(its);
-    if(!its.length){alert('Tanımlı kalem bulunamadı. Excel oluşturulmadı.');return;}
-    const wb=XLSX.utils.book_new();
-    const sum=groups.map(g=>({Kategori:g.category,Grup:g.grup,'Adet':g.count,'Toplam Tutar':g.total}));
-    sum.push({Kategori:'GENEL TOPLAM',Grup:'','Adet':its.length,'Toplam Tutar':its.reduce((a,b)=>a+b.amount,0)});
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum),'Özet');
-    const det=its.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,Tutar:i.amount}));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det),'Detay');
-    return writeWorkbook(wb,title+'.xlsx');
-  }
-  const body=`<h2 style="font-family:sans-serif">Kayıtlar</h2>`+list.map(n=>
-    `<div style="font-family:sans-serif;margin-bottom:14px">
-      <div style="color:#555;font-size:12px">${fmt(n.createdAt)} · ${n.type==='voice'?'Ses':'Görsel'}</div>
-      <div style="font-size:14px;white-space:pre-wrap">${escapeHtml(n.text)}</div></div>`).join('');
-  if(fmtType==='word'){
-    const html='<html><head><meta charset="utf-8"></head><body>'+body+'</body></html>';
-    dl(new Blob(['\ufeff'+html],{type:'application/msword'}),title+'.doc');
-  }else{
-    const el=document.createElement('div'); el.style.padding='16px'; el.innerHTML=body;
-    html2pdf().set({margin:10,filename:title+'.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4'}}).from(el).save();
-  }
-}
+/* exportSelected buradan kaldırıldı: hiçbir düğme çağırmıyordu ve seçim
+   listesini artık var olmayan #notesList'ten okuyordu. Word/PDF dökümü
+   exportReport() üzerinden alınıyor. */
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();}
 
 
@@ -1148,6 +1235,7 @@ function exportReport(t){
   if(!list.length){alert('Bu dönemde kayıt yok.');return;}
   const title=(curReport==='week'?'Haftalik':'Aylik')+'_Rapor_'+todayStr();
   if(t==='excel'){
+    if(!xlsxHazir())return false;
     const its=allItems(list), groups=groupItems(its);
     const wb=XLSX.utils.book_new();
     const sum=groups.map(g=>({Kategori:g.category,'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
@@ -1165,7 +1253,7 @@ function exportReport(t){
     +`<tr><td style="padding:6px;font-weight:bold">GENEL TOPLAM</td><td style="padding:6px;text-align:right;font-weight:bold">${_its.length}</td><td style="padding:6px;text-align:right;font-weight:bold">${money(_its.reduce((a,b)=>a+b.amount,0))}</td></tr></table>`):'';
   const body=`<h2 style="font-family:sans-serif">${curReport==='week'?'Haftalık':'Aylık'} Döküm</h2>`+gTable+'<h3 style="font-family:sans-serif">Kayıtlar</h3>'+list.map(n=>`<div style="font-family:sans-serif;margin-bottom:12px"><div style="color:#555;font-size:12px">${fmt(n.createdAt)} · ${n.type==='voice'?'Ses':'Görsel'}</div><div style="white-space:pre-wrap">${escapeHtml(n.text)}</div></div>`).join('');
   if(t==='word'){dl(new Blob(['\ufeff<html><head><meta charset="utf-8"></head><body>'+body+'</body></html>'],{type:'application/msword'}),title+'.doc');}
-  else{const el=document.createElement('div');el.style.padding='16px';el.innerHTML=body;html2pdf().set({margin:10,filename:title+'.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4'}}).from(el).save();}
+  else{if(!pdfHazir())return false;const el=document.createElement('div');el.style.padding='16px';el.innerHTML=body;html2pdf().set({margin:10,filename:title+'.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4'}}).from(el).save();}
 }
 
 
@@ -1270,6 +1358,7 @@ function renderStock(){
 }
 function exportStock(){
   if(!STOCK.length){alert('Stok kaydı yok.');return;}
+  if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
   const ozet={};
   STOCK.forEach(i=>{
@@ -1293,6 +1382,7 @@ function exportStock(){
 /* ---------- TAM EXCEL ŞABLONU ---------- */
 function W(ws,widths){ws['!cols']=widths.map(w=>({wch:w}));return ws;}
 function exportFullTemplate(){
+  if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
   const now=new Date();
   const its=allItems(NOTES), groups=groupItems(its);
@@ -1443,15 +1533,16 @@ function checkReminders(){
   initFirebase();
   const cw=document.getElementById('cloudWarn');
   if(cw&&!cloudOn)cw.textContent='Bulut bağlı değil — girişler sadece bu cihazda kalır. (Firebase config eklenmedi)';
-  NOTES=await Store.get('notes',[]);
-  PAYMENTS=await Store.get('payments',[]);
-  LEXICON=await Store.get('lexicon',[]);
-  SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
-  STOCK=await Store.get('stock',[]);
-  MOVES=await Store.get('moves',[]);
-  if('Notification'in window&&Notification.permission==='default'){try{Notification.requestPermission();}catch(e){}}
-  checkReminders();
+  /* Veri artık girişten sonra yükleniyor: PIN girilmeden hiçbir kayıt
+     belleğe alınmıyor, çıkışta da temizleniyor.
+     Bildirim izni de açılışta değil, ilk çek eklendiğinde isteniyor —
+     uygulamayı ilk açan kişiye sebepsiz izin kutusu çıkıyordu. */
+  showLogin();
   bindHold(document.getElementById('micHero'),{});
+  /* Uygulama arkadan öne gelince vadesi yaklaşan çekler yeniden bakılır. */
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'&&CURRENT)checkReminders();
+  });
 })();
 </script>
 </body>
