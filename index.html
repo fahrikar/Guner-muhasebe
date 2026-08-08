@@ -7,12 +7,26 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f3ede1">
 <title>Sesli & Görsel Kayıt</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
+<!-- Ana ekrana kurulum + çevrimdışı açılış -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Güner">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+<!-- Excel kütüphanesi repoda: internet olmadan da Excel üretilebilsin ve
+     uygulama dış bir servise bağımlı kalmasın. Diğerleri zaten ağ isteyen
+     işler için (bulut, OCR) ya da ikincil (PDF), CDN'de bırakıldı.
+     defer: ~2 MB'lık kütüphane ilk çizimi bekletmesin — eskiden hepsi
+     engelleyici yükleniyordu ve zayıf hatta ekran uzun süre boş kalıyordu. -->
+<script src="xlsx.full.min.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js" defer></script>
 <style>
   :root{
     --bg:#f3ede1; --bg2:#faf6ee; --card:#fffdf8; --ink:#1d1d1f; --sub:#78736a;
@@ -127,13 +141,33 @@
   .tabs .tab{flex:1;text-align:center;padding:11px;border-radius:14px;background:#f2ebdd;
     border:1px solid var(--line);font-size:13px;color:var(--sub);cursor:pointer;letter-spacing:-.01em}
   .tabs .tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  /* Yeni sürüm bildirimi — form doldurulurken sayfa kendiliğinden yenilenmez */
+  .upd{position:fixed;left:0;right:0;top:0;z-index:60;display:none;align-items:center;
+    justify-content:center;gap:10px;padding:8px 12px;background:var(--gold);color:#fff;
+    padding-top:calc(8px + env(safe-area-inset-top));
+    font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  .upd.show{display:flex}
+  .upd .btn{background:var(--graphite);width:auto;padding:7px 14px;font-size:13px;box-shadow:none}
+  /* Çevrimdışıyken görünür: uygulama çalışmaya devam eder, kullanıcı bilsin. */
+  .offline{display:none;background:var(--gold);color:#fff;border-radius:20px;
+    padding:2px 9px;font-size:11px;font-weight:600;margin-left:8px}
+  .offline.show{display:inline-block}
+  header{padding-top:calc(16px + env(safe-area-inset-top))}
+  nav{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>
 
+<div class="upd" id="updBar">
+  <span>Yeni sürüm hazır.</span>
+  <button type="button" class="btn sm" onclick="applyUpdate()">Yenile</button>
+</div>
+
 <header>
   <span id="hdrTitle">Sesli &amp; Görsel Kayıt</span>
   <small id="hdrRight"></small>
+  <small class="offline" id="offlineBadge">çevrimdışı</small>
 </header>
 
 <main>
@@ -326,15 +360,41 @@ const FIREBASE_CONFIG={
   appId:"1:105622639570:web:dc2f36b37d9bc7633bee0b",
 };
 
-/* 2) PIN kodları — istediğin gibi değiştir: */
-const ROLES={
-  '1515':{rol:'patron', ad:'Abdurrahman'},
-  '1111':{rol:'mudur',  ad:'Ahmet 1', mudurId:'m1'},
-  '2222':{rol:'mudur',  ad:'Hamdi 2', mudurId:'m2'},
-  '3333':{rol:'mudur',  ad:'Fatih 3', mudurId:'m3'},
-  '4444':{rol:'mudur',  ad:'Ömer 4', mudurId:'m4'},
-  '5555':{rol:'mudur',  ad:'Çetin 5', mudurId:'m5'}
-};
+/* 2) PIN kodları — burada AÇIK HÂLDE TUTULMAZ.
+   Eskiden PIN → rol eşlemesi düz metin olarak yazılıyordu; depo herkese açık
+   olduğu için kaynağı görüntüleyen herkes patron PIN'ini okuyabiliyordu.
+   Artık yalnız PBKDF2 özetleri duruyor, PIN'in kendisi hiçbir dosyada yok.
+
+   PIN değiştirmek için:  npm run pin
+   (Araç yeni özetleri hesaplayıp bu bloğu günceller; PIN'i sen belirlersin,
+   repoya girmez.)
+
+   SINIRI BİL: bu, kaynağı okuyan birinin PIN'i doğrudan görmesini engeller.
+   Ama doğrulama hâlâ tarayıcıda yapılıyor — teknik bilen biri konsoldan
+   CURRENT değişkenini değiştirip patron olabilir. Verinin gerçek koruması
+   Firebase güvenlik kurallarıdır (firebase-rules.json ve README'ye bak). */
+const PIN_SALT="cda81949d6eb93e09623214361e1fe85";
+const PIN_ITER=310000;
+let ROLES=[
+  {rol:'patron', ad:'Abdurrahman', hash:'b4c331f1a383dcb6cee92bf882f00bcb7c182796543055a337713c8ad7799868'},
+  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'a6d80258e46792b9aa236840150b818e33a595b753e2a4b44d94f2d940ec5804'},
+  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'31c35906b909f448d23c2101c797bda418483da7916fad76b12e4d394afbc3a9'},
+  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'736474665c29a3d7791681a3de064c3c48b012c7b2f2e47712dbd1f46c6eb2e4'},
+  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'ae8b81fd57a2aa76d6654a16cb675916eba5f05f6d5a64226d879e8bf8a95eba'},
+  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'1bf2ed68c900eb9384c942561267bb0e896c865868a29cda9c1b6ad0b654e742'}
+];
+
+/* PIN → PBKDF2-SHA256 özeti. Tek ortak tuz kullanılıyor: böylece girişte
+   tek bir türetme yapılıp bütün kayıtlarla karşılaştırılıyor, telefonda
+   giriş yavaşlamıyor. */
+async function pinHash(pin){
+  const enc=new TextEncoder();
+  const salt=new Uint8Array(PIN_SALT.match(/../g).map(h=>parseInt(h,16)));
+  const key=await crypto.subtle.importKey('raw',enc.encode(pin),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits(
+    {name:'PBKDF2',salt,iterations:PIN_ITER,hash:'SHA-256'},key,256);
+  return [...new Uint8Array(bits)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
 let CURRENT=null;          // {rol, ad, mudurId}
 let db=null, cloudOn=false;
@@ -360,10 +420,23 @@ function showLogin(){
   document.getElementById('hdrTitle').textContent='Sesli & Görsel Kayıt';
   document.getElementById('hdrRight').textContent='';
 }
-function doLogin(){
+let loginBusy=false;
+async function doLogin(){
+  if(loginBusy)return;
   const pin=document.getElementById('pinInput').value.trim();
-  const r=ROLES[pin];
   const st=document.getElementById('loginStatus');
+  if(!pin){ st.textContent='PIN girin.'; return; }
+  /* crypto.subtle yalnız güvenli bağlantıda (https ya da localhost) var. */
+  if(!(window.crypto&&crypto.subtle)){
+    st.textContent='⚠️ Güvenli bağlantı gerekiyor. Sayfayı https adresinden aç.'; return;
+  }
+  loginBusy=true; st.textContent='Kontrol ediliyor…';
+  let r=null;
+  try{
+    const h=await pinHash(pin);
+    r=ROLES.find(x=>x.hash===h)||null;
+  }catch(e){ st.textContent='Giriş kontrol edilemedi: '+e.message; loginBusy=false; return; }
+  loginBusy=false;
   if(!r){ st.textContent='Hatalı PIN.'; document.getElementById('pinInput').value=''; return; }
   CURRENT=r;
   st.textContent='';
@@ -1528,8 +1601,57 @@ function checkReminders(){
   }else box.innerHTML='';
 }
 
-/* ---------- init ---------- */
-(async function(){
+/* ---------- otomatik güncelleme + çevrimdışı ----------
+   sw.js "ağ önce" çalışır: internet varken her açılışta sunucudaki sürüm
+   alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
+   bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
+   değişmezse tarayıcı yeni sürümü fark etmez. */
+const APP_VERSION="2026-08-08.1";
+let waitingWorker=null;
+
+function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
+function applyUpdate(){
+  document.getElementById('updBar').classList.remove('show');
+  if(waitingWorker)waitingWorker.postMessage({type:'skipWaiting'});
+  else location.reload();
+}
+function updateOnline(){
+  document.getElementById('offlineBadge').classList.toggle('show',!navigator.onLine);
+}
+function initUpdates(){
+  window.addEventListener('online',updateOnline);
+  window.addEventListener('offline',updateOnline);
+  updateOnline();
+  /* file:// ile açıldığında service worker yok; uygulama yine çalışır. */
+  if(!('serviceWorker'in navigator)||location.protocol==='file:')return;
+  /* İlk ziyarette clients.claim() de controllerchange tetikliyor; o anda
+     yenilemek forma yazılanları siler. Yalnız gerçek güncellemede yenilenir. */
+  const hadController=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    if(reg.waiting&&navigator.serviceWorker.controller)showUpdateBar(reg.waiting);
+    reg.addEventListener('updatefound',()=>{
+      const w=reg.installing; if(!w)return;
+      w.addEventListener('statechange',()=>{
+        if(w.state==='installed'&&navigator.serviceWorker.controller)showUpdateBar(w);
+      });
+    });
+    const check=()=>{if(document.visibilityState==='visible')reg.update().catch(()=>{});};
+    document.addEventListener('visibilitychange',check);
+    check();
+  }).catch(()=>{});
+  let reloading=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(reloading||!hadController)return;
+    reloading=true; location.reload();
+  });
+}
+
+/* ---------- init ----------
+   defer'li kütüphaneler belge ayrıştırıldıktan sonra, DOMContentLoaded'dan
+   hemen önce çalışır. Bu yüzden başlatma o olayı beklemeli: gövde içinde
+   doğrudan çalıştırılırsa `firebase` henüz tanımsız olur ve bulut sessizce
+   kapalı kalırdı. */
+function boot(){
   initFirebase();
   const cw=document.getElementById('cloudWarn');
   if(cw&&!cloudOn)cw.textContent='Bulut bağlı değil — girişler sadece bu cihazda kalır. (Firebase config eklenmedi)';
@@ -1543,7 +1665,10 @@ function checkReminders(){
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible'&&CURRENT)checkReminders();
   });
-})();
+  initUpdates();
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);
+else boot();
 </script>
 </body>
 </html>

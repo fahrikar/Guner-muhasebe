@@ -1,0 +1,17 @@
+{
+  "name": "guner-muhasebe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Güner sesli kayıt / muhasebe takibi — geliştirme araçları (uygulamanın kendisi build gerektirmez)",
+  "type": "module",
+  "scripts": {
+    "check": "node tools/check.mjs",
+    "test": "node tools/smoke.mjs",
+    "bump": "node tools/bump-version.mjs",
+    "ikon": "node tools/make-icons.mjs",
+    "pin": "node tools/make-pins.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}
