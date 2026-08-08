@@ -103,6 +103,8 @@ try{
   /* 1 — giriş yapılmadan içeri girilemiyor */
   check("giriş ekranı açık",await page.isVisible("#login"));
   check("alt menü giriş öncesi gizli",!(await page.isVisible("nav")));
+  /* Ayarlarda çıkış, yedek ve PIN değişimi var; giriş öncesi açılmamalı. */
+  check("ayarlar dişlisi giriş öncesi gizli",!(await page.isVisible("#btnAyar")));
   await page.evaluate(()=>go('stock'));            // menü gizli, doğrudan çağır
   check("go() giriş olmadan ekran açmıyor",
     !(await page.isVisible("#stock"))&&await page.isVisible("#login"));
@@ -214,8 +216,31 @@ try{
 
   /* Sürüm ekranda görünmeli: telefonda eski yapıda kalınıp kalınmadığını
      anlamanın tek yolu bu. */
-  check("sürüm tabloda yazıyor",
-    serbestTablo.includes(await page.evaluate(()=>APP_VERSION)),serbestTablo.slice(-80));
+  /* Ayarlar artık başlıktaki dişlinin arkasında; tabloyu doldurmuyor. */
+  check("tablo ekranı ayar kartlarıyla dolmuyor",
+    !serbestTablo.includes("Sesli uyarılar")&&!serbestTablo.includes("Yedekleme"),
+    serbestTablo.slice(-120));
+  check("ayarlar dişlisi görünüyor",await page.isVisible("#btnAyar"));
+  await page.click("#btnAyar");
+  await page.waitForSelector("#ayarKat",{state:"visible",timeout:5000});
+  const ayarMetin=await page.textContent("#ayarIcerik");
+  check("ayarlar penceresinde ses, güvenlik ve yedek var",
+    ayarMetin.includes("Sesli uyarılar")&&ayarMetin.includes("Güvenlik")&&ayarMetin.includes("Yedekleme"),
+    ayarMetin.slice(0,140));
+  check("sürüm ayarlar penceresinde yazıyor",
+    ayarMetin.includes(await page.evaluate(()=>APP_VERSION)),ayarMetin.slice(-80));
+  /* Anahtar tabloyu değil pencereyi tazelemeli; renderTable çağrılsaydı
+     düğme eski hâlinde kalırdı. */
+  const oncekiSes=await page.evaluate(()=>SETTINGS.anomali!==false);
+  await page.evaluate(()=>toggleSes('anomali'));
+  await page.waitForTimeout(200);
+  check("ses anahtarı pencerede güncelleniyor",
+    await page.evaluate(o=>SETTINGS.anomali!==false!==o,oncekiSes)
+    &&(await page.textContent("#ayarIcerik")).includes("Olağandışı uyarı"));
+  await page.evaluate(()=>toggleSes('anomali'));
+  await page.evaluate(()=>ayarKapat());
+  await page.waitForTimeout(150);
+  check("ayarlar penceresi kapanıyor",!(await page.isVisible("#ayarKat")));
 
   await page.evaluate(()=>go('voice'));
   page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';autoSaveVoice();});
@@ -453,9 +478,10 @@ try{
   await setupPins();
   await login(TEST_PATRON,true);
 
-  /* 14 — uygulama içinden PIN değiştirme */
+  /* 14 — uygulama içinden PIN değiştirme (ayarlar penceresinde) */
   const YENI_PIN="33333333";
-  await page.evaluate(()=>go('notes'));
+  await page.click("#btnAyar");
+  await page.waitForSelector("#ayarKat",{state:"visible",timeout:5000});
   await page.click('button:has-text("PIN\'imi değiştir")');
   await page.fill("#pinOld","99999999");
   await page.fill("#pinNew",YENI_PIN);

@@ -55,6 +55,15 @@
     border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;
   }
   header small{font-weight:400;color:var(--sub);font-size:12px}
+  .hdr-sag{display:flex;align-items:center;gap:10px;margin-left:auto}
+  /* Dişli başlık yüksekliğini büyütmesin diye kutu ölçüsü sabit; dokunma
+     alanı ikonun kendisinden geniş tutuluyor. */
+  .ikon{
+    display:flex;align-items:center;justify-content:center;
+    width:34px;height:34px;margin:-6px -6px -6px 0;padding:0;
+    background:none;border:0;border-radius:11px;color:var(--sub);cursor:pointer;
+  }
+  .ikon:active{background:rgba(0,0,0,.06)}
   main{flex:1;overflow-y:auto;padding-bottom:84px}
   .screen{display:none;padding:18px}
   .screen.active{display:block}
@@ -166,8 +175,20 @@
 
 <header>
   <span id="hdrTitle">Sesli &amp; Görsel Kayıt</span>
-  <small id="hdrRight"></small>
   <small class="offline" id="offlineBadge">çevrimdışı</small>
+  <span class="hdr-sag">
+    <small id="hdrRight"></small>
+    <!-- Ayarlar dişlisi: başlıkta durduğu için hangi ekranda olunursa
+         olunsun elin altında, tabloyu da doldurmuyor. Giriş yapılmadan
+         gizli (applyRole ayarlıyor). -->
+    <button type="button" id="btnAyar" class="ikon" onclick="ayarAc()" aria-label="Ayarlar">
+      <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H2a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.5 1z"/>
+      </svg>
+    </button>
+  </span>
 </header>
 
 <main>
@@ -353,6 +374,18 @@
     <svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><line x1="3.5" y1="10" x2="20.5" y2="10"/></svg>Çekler</button>
 </nav>
 
+<!-- Ayarlar penceresi. İçeriği ayarCiz() dolduruyor; tablo ekranının altında
+     duran kartlar buraya taşındı. -->
+<div id="ayarKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center" onclick="ayarKatTikla(event)">
+  <div id="ayarPencere" style="background:#fffdf8;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-weight:700;font-size:16px">Ayarlar</div>
+      <button type="button" class="btn sm ghost" onclick="ayarKapat()">Kapat</button>
+    </div>
+    <div id="ayarIcerik"></div>
+  </div>
+</div>
+
 <!-- Kayıt onay penceresi. Sözlükte olsun olmasın her kalem buradan geçer;
      kişi adı/tutarı düzeltir, gereksizi siler, sözlükte olmayanın yönünü
      seçer. Onaylanan her şey kaydedilir ve Excel'e girer. -->
@@ -518,6 +551,8 @@ async function changePin(){
   st.textContent='';
   alert('✅ PIN değiştirildi.\n\nBu değişiklik yalnız bu cihazda geçerli; '
        +'başka bir telefonda eski PIN çalışmaya devam eder.');
+  /* Form ayarlar penceresinde; açık kutuları temizlemek için orayı çiz. */
+  if(ayarAcikMi())ayarCiz();
   renderTable();
 }
 
@@ -529,6 +564,10 @@ function showLogin(){
   document.querySelector('nav').style.display='none';
   document.getElementById('hdrTitle').textContent='Sesli & Görsel Kayıt';
   document.getElementById('hdrRight').textContent='';
+  /* Dişli de kapansın: giriş yapılmadan ayarlara (çıkış, yedek, PIN)
+     erişilmemeli, açık kalmış pencere de arkada durmamalı. */
+  document.getElementById('btnAyar').style.display='none';
+  ayarKapat();
 }
 let loginBusy=false;
 async function doLogin(){
@@ -600,6 +639,7 @@ function applyRole(){
   // başlıkta kim olduğunu göster
   const hr=document.getElementById('hdrRight');
   if(hr)hr.textContent=CURRENT.ad+(patron?'':' · sadece gider girişi');
+  document.getElementById('btnAyar').style.display='';
   // müdür ana ekranda sadece mikrofonu görsün (kamera opsiyonel kalsın)
   document.body.classList.toggle('mudur',!patron);
 }
@@ -1187,16 +1227,18 @@ function speak(text,tip){
     window.speechSynthesis.speak(u);
   }catch(e){}
 }
+/* Anahtarlar artık ayarlar penceresinde; tabloyu değil pencereyi yeniden
+   çizmek gerekiyor. renderTable çağrılsaydı düğmeler eski hâlinde kalırdı. */
 async function toggleSes(tip){
   SETTINGS[tip]=SETTINGS[tip]===false?true:false;
   await Store.set('settings',SETTINGS);
-  renderTable();
+  ayarCiz();
   if(SETTINGS[tip])speak('Açık',tip);
 }
 async function tumSes(ac){
   Object.keys(SES_VARSAYILAN).forEach(k=>SETTINGS[k]=ac);
   await Store.set('settings',SETTINGS);
-  renderTable();
+  ayarCiz();
 }
 
 /* ---------- TANIMLI KATEGORİLER (sadece bunlar Excel'e gider) ----------
@@ -1461,8 +1503,28 @@ function renderTable(){
       +'<div class="muted" style="margin-top:6px">'
       +(net<0?'Bu dönemde çıkan para girenden fazla.':'Bu dönemde giren para çıkandan fazla.')+'</div></div>';
   }
-  /* Ayar/güvenlik/yedek kartları en alta: Tablo ekranını açan önce tabloyu
-     görmeli, ayarları değil. */
+  box.innerHTML=html||'';
+}
+
+/* ---------- AYARLAR PENCERESİ ----------
+   Ses/güvenlik/yedek kartları eskiden tablonun altında duruyordu; tablo
+   ekranını açan kişi önce tabloyu değil bir yığın ayarı görüyordu. Artık
+   başlıktaki dişlinin arkasında. */
+function ayarAc(){
+  if(!CURRENT)return;
+  ayarCiz();
+  document.getElementById('ayarKat').style.display='flex';
+}
+function ayarKapat(){ document.getElementById('ayarKat').style.display='none'; }
+/* Pencerenin dışına dokununca kapansın; içine dokunmak kapatmasın. */
+function ayarKatTikla(e){ if(e.target&&e.target.id==='ayarKat')ayarKapat(); }
+function ayarAcikMi(){
+  const k=document.getElementById('ayarKat');
+  return !!k&&k.style.display==='flex';
+}
+function ayarCiz(){
+  const box=document.getElementById('ayarIcerik');
+  if(!box)return;
   // sesli teyit anahtarı
   const sesler=[
     {k:'kayit',   ad:'Yedek sesi',      aciklama:'Yedek alınınca "yedek alındı" der'},
@@ -1503,14 +1565,10 @@ function renderTable(){
      +'<label class="btn sm ghost" style="text-align:center">Geri Yükle'
      +'<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(event)"></label></div></div>';
 
-  /* "Tanımlanamayan kalemler" kartı kaldırıldı. Sözlük artık bir kapı
-     değil: her kalem onay ekranından geçip adıyla kaydediliyor, dolayısıyla
-     öğretilecek tanımsız kelime birikmiyor. */
-
-  /* Sürüm ekranda görünsün: "düzeltildi" denen bir hata telefonda sürerken
+  /* Sürüm burada dursun: "düzeltildi" denen bir hata telefonda sürerken
      eski yapıda mı kalındığını başka türlü anlamanın yolu yok. */
-  const surum='<div class="muted" style="text-align:center;padding:14px 0 4px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
-  box.innerHTML=html+ayarlar+surum;
+  const surum='<div class="muted" style="text-align:center;padding:12px 0 2px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
+  box.innerHTML=ayarlar+surum;
 }
 /* Para kaydı siliniyor: yanlış dokunuş bir gideri sessizce yok ediyordu. */
 async function delRow(noteId,idx){
@@ -1681,7 +1739,9 @@ async function restoreBackup(ev){
       await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
       await Store.set('serbestYon',SERBEST_YON);
-      renderTable(); alert('✅ Yedek geri yüklendi.');
+      /* Ayarlar da yedekten geldi; pencere açıksa anahtarlar tazelensin. */
+      renderTable(); if(ayarAcikMi())ayarCiz();
+      alert('✅ Yedek geri yüklendi.');
     }catch(e){ alert('Yedek okunamadı: '+e.message); }
   };
   r.readAsText(f);
@@ -2089,7 +2149,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.9";
+const APP_VERSION="2026-08-08.10";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
