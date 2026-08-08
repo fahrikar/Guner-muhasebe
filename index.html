@@ -781,7 +781,9 @@ async function autoSaveVoice(){
       speak('Dikkat. '+a.kategori+' için '+Math.round(a.tutar).toLocaleString('tr-TR')+' girildi. Ortalaman '+Math.round(a.ort).toLocaleString('tr-TR')+'. Kontrol et.','anomali');
     }
     document.getElementById('voiceText').value='';
-    if(!anomali.length)sayItems(bilinen,bilinmeyen);
+    /* Kayıt sonrası sesli teyit kaldırıldı: onay kutusu zaten ekranda
+       görünüyor, üstüne bir de okunması rahatsız ediyordu. Olağandışı tutar
+       uyarısı sesli kalmaya devam ediyor — o bir teyit değil, ikaz. */
     renderTable();
     if(lb){
       lb.style.display='block';
@@ -939,8 +941,7 @@ async function reparseAll(){
 
 /* ---------- SESLİ TEYİT ---------- */
 function speak(text,tip){
-  if(tip&&SETTINGS[tip]===false)return;
-  if(!tip&&SETTINGS.kayit===false)return;
+  if(SETTINGS[tip]===false)return;
   try{
     if(!('speechSynthesis'in window))return;
     window.speechSynthesis.cancel();
@@ -948,16 +949,6 @@ function speak(text,tip){
     u.lang='tr-TR'; u.rate=1.05; u.pitch=1;
     window.speechSynthesis.speak(u);
   }catch(e){}
-}
-function sayItems(bilinen,bilinmeyen){
-  if(bilinen.length){
-    const parts=bilinen.map(i=>i.known+' '+Math.round(i.amount).toLocaleString('tr-TR'));
-    speak(parts.join(', ')+' kaydedildi.','kayit');
-  }else if(bilinmeyen.length){
-    speak('Tanımlanamadı. Lütfen kontrol et.','kayit');
-  }else{
-    speak('Tutar algılanamadı.','kayit');
-  }
 }
 async function toggleSes(tip){
   SETTINGS[tip]=SETTINGS[tip]===false?true:false;
@@ -971,26 +962,48 @@ async function tumSes(ac){
   renderTable();
 }
 
-/* ---------- TANIMLI KATEGORİLER (sadece bunlar Excel'e gider) ---------- */
+/* ---------- TANIMLI KATEGORİLER (sadece bunlar Excel'e gider) ----------
+   `yon` alanı kalemin hangi tarafa yazılacağını söyler:
+     borc   = para çıkışı (gider, ödeme, hammadde alımı…)
+     alacak = para girişi (tahsilat)
+   Bir kategori yanlış taraftaysa yalnız buradaki `yon` değiştirilir; tablo,
+   rapor ve Excel'in üçü de buradan okuyor. */
 const CATEGORY_MAP=[
-  {ad:'Emanet',            grup:'Kasa',                       kelimeler:['emanet']},
-  {ad:'Çek',               grup:'Ödeme',                      kelimeler:['çek','cek']},
-  {ad:'Tahsilat',          grup:'Gelir',                      kelimeler:['tahsilat','tahsil','gelir','ödeme aldım']},
-  {ad:'Ev Gideri',         grup:'Gider',                      kelimeler:['ev gider','ev gideri','ev harcama','ev masraf']},
-  {ad:'Fabrika Gideri',    grup:'Fabrika Giderleri',          kelimeler:['fabrika gider','fabrika gideri','fabrika masraf']},
-  {ad:'İşçi Ödemesi',      grup:'Fabrika Giderleri',          kelimeler:['işçi','isci','personel','yevmiye','maaş','maas','işçi ödeme']},
-  {ad:'Diğer Gider',       grup:'Fabrika Giderleri',          kelimeler:['diğer gider','diger gider','genel gider']},
-  {ad:'Söve Hammaddesi',   grup:'Söve ve Boya Hammaddeleri',  kelimeler:['söve','sove','strafor','ströfor']},
-  {ad:'Boya Hammaddesi',   grup:'Söve ve Boya Hammaddeleri',  kelimeler:['boya','astar','vernik','tiner']},
-  {ad:'İnşaat Malzemesi',  grup:'İnşaat Malzemeleri',         kelimeler:['inşaat','insaat','çimento','cimento','demir','kum','tuğla','tugla','kereste','beton','alçı','alci']},
-  {ad:'Yakıt',             grup:'Gider',                      kelimeler:['yakıt','yakit','mazot','benzin','motorin']},
-  {ad:'Nakliye',           grup:'Gider',                      kelimeler:['nakliye','kargo','sevkiyat','taşıma']},
-  {ad:'Kira',              grup:'Gider',                      kelimeler:['kira']},
-  {ad:'Vergi',             grup:'Gider',                      kelimeler:['vergi','sgk','stopaj']},
-  {ad:'Elektrik',          grup:'Gider',                      kelimeler:['elektrik']},
-  {ad:'Su',                grup:'Gider',                      kelimeler:['su faturası','su fatura']},
-  {ad:'Doğalgaz',          grup:'Gider',                      kelimeler:['doğalgaz','dogalgaz','gaz faturası']}
+  {ad:'Emanet',            grup:'Kasa',                       yon:'borc',   kelimeler:['emanet']},
+  {ad:'Çek',               grup:'Ödeme',                      yon:'borc',   kelimeler:['çek','cek']},
+  {ad:'Tahsilat',          grup:'Gelir',                      yon:'alacak', kelimeler:['tahsilat','tahsil','gelir','ödeme aldım']},
+  {ad:'Ev Gideri',         grup:'Gider',                      yon:'borc',   kelimeler:['ev gider','ev gideri','ev harcama','ev masraf']},
+  {ad:'Fabrika Gideri',    grup:'Fabrika Giderleri',          yon:'borc',   kelimeler:['fabrika gider','fabrika gideri','fabrika masraf']},
+  {ad:'İşçi Ödemesi',      grup:'Fabrika Giderleri',          yon:'borc',   kelimeler:['işçi','isci','personel','yevmiye','maaş','maas','işçi ödeme']},
+  {ad:'Diğer Gider',       grup:'Fabrika Giderleri',          yon:'borc',   kelimeler:['diğer gider','diger gider','genel gider']},
+  {ad:'Söve Hammaddesi',   grup:'Söve ve Boya Hammaddeleri',  yon:'borc',   kelimeler:['söve','sove','strafor','ströfor']},
+  {ad:'Boya Hammaddesi',   grup:'Söve ve Boya Hammaddeleri',  yon:'borc',   kelimeler:['boya','astar','vernik','tiner']},
+  {ad:'İnşaat Malzemesi',  grup:'İnşaat Malzemeleri',         yon:'borc',   kelimeler:['inşaat','insaat','çimento','cimento','demir','kum','tuğla','tugla','kereste','beton','alçı','alci']},
+  {ad:'Yakıt',             grup:'Gider',                      yon:'borc',   kelimeler:['yakıt','yakit','mazot','benzin','motorin']},
+  {ad:'Nakliye',           grup:'Gider',                      yon:'borc',   kelimeler:['nakliye','kargo','sevkiyat','taşıma']},
+  {ad:'Kira',              grup:'Gider',                      yon:'borc',   kelimeler:['kira']},
+  {ad:'Vergi',             grup:'Gider',                      yon:'borc',   kelimeler:['vergi','sgk','stopaj']},
+  {ad:'Elektrik',          grup:'Gider',                      yon:'borc',   kelimeler:['elektrik']},
+  {ad:'Su',                grup:'Gider',                      yon:'borc',   kelimeler:['su faturası','su fatura']},
+  {ad:'Doğalgaz',          grup:'Gider',                      yon:'borc',   kelimeler:['doğalgaz','dogalgaz','gaz faturası']}
 ];
+/* Yön kayıtlarda saklanmıyor, kategoriden okunuyor: eski kayıtlar da doğru
+   tarafa düşer ve bir kategorinin yönü düzeltilince geçmiş kendiliğinden
+   düzelir. Tanımsız kalem hiçbir tarafa yazılmaz (Excel'e de girmiyor). */
+function yonOf(kategoriAdi){
+  const c=CATEGORY_MAP.find(x=>x.ad===kategoriAdi);
+  return c&&c.yon==='alacak'?'alacak':'borc';
+}
+const YON_AD={borc:'Borç',alacak:'Alacak'};
+/* Tanınan kalemleri borç/alacak diye ayırır ve toplamlarını verir. */
+function yonAyir(items){
+  const borc=[],alacak=[];
+  items.forEach(it=>{ if(!it.known)return; (yonOf(it.known)==='alacak'?alacak:borc).push(it); });
+  const topla=a=>a.reduce((x,y)=>x+y.amount,0);
+  const tBorc=topla(borc), tAlacak=topla(alacak);
+  return {borc,alacak,tBorc,tAlacak,net:tAlacak-tBorc};
+}
+
 function matchCategory(text){
   const learned=learnedMatch(text);
   if(learned)return learned;
@@ -1093,18 +1106,19 @@ function renderTable(){
   const rows=[];
   NOTES.forEach(n=>(n.items||[]).forEach((it,idx)=>rows.push({noteId:n.id,idx,
     tarih:fmt(n.createdAt),kategori:it.known||it.category,grup:it.grup||'—',
-    tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||''})));
+    tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
+    yon:it.known?yonOf(it.known):null})));
   if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
-  const toplam=rows.filter(r=>r.taninan).reduce((a,b)=>a+b.tutar,0);
-  let html='<div class="card" style="padding:0;overflow:hidden">'
-   +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
-   +'<thead><tr style="background:#f2ebdd">'
-   +'<th style="text-align:left;padding:10px 8px;font-weight:600">Tarih</th>'
-   +'<th style="text-align:left;padding:10px 8px;font-weight:600">Kategori</th>'
-   +'<th style="text-align:right;padding:10px 8px;font-weight:600">Tutar</th>'
-   +'<th style="width:34px"></th></tr></thead><tbody>';
-  rows.forEach(r=>{
-    html+='<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
+
+  /* Borç ve alacak ayrı tablolarda: tek listede iç içe durunca hangi paranın
+     girdiği hangisinin çıktığı okunmuyordu ve TOPLAM ikisini topluyordu. */
+  const borcR=rows.filter(r=>r.yon==='borc');
+  const alacakR=rows.filter(r=>r.yon==='alacak');
+  const tanimsizR=rows.filter(r=>!r.taninan);
+  const topla=a=>a.reduce((x,y)=>x+y.tutar,0);
+  const tBorc=topla(borcR), tAlacak=topla(alacakR), net=tAlacak-tBorc;
+
+  const satir=r=>'<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
       +'<td style="padding:9px 8px;color:var(--sub);white-space:nowrap">'+r.tarih.split(' ')[0]+'</td>'
       +'<td style="padding:9px 8px">'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
         +((CURRENT&&CURRENT.rol==='patron'&&r.mudur)?'<div class="muted" style="font-size:11px">'+escapeHtml(r.mudur)+'</div>':'')
@@ -1112,24 +1126,59 @@ function renderTable(){
                    :'<div class="muted" style="font-size:11px">tanımsız · Excel\'e girmez</div>')+'</td>'
       +'<td style="padding:9px 8px;text-align:right;font-weight:600;white-space:nowrap">'+money(r.tutar)+'</td>'
       +'<td style="padding:9px 4px;text-align:center"><span onclick="delRow('+r.noteId+','+r.idx+')" style="cursor:pointer;color:#b23b34;font-size:16px">×</span></td></tr>';
-  });
-  html+='<tr style="border-top:2px solid var(--line);background:#faf6ee">'
-    +'<td colspan="2" style="padding:11px 8px;font-weight:700">TOPLAM</td>'
-    +'<td style="padding:11px 8px;text-align:right;font-weight:700">'+money(toplam)+'</td><td></td></tr>';
-  html+='</tbody></table></div>';
+
+  /* Her blok kendi başlığı, kendi çizgisi ve kendi toplamıyla ayrı bir kart. */
+  const blok=(baslik,liste,toplam,renk,altYazi)=>{
+    if(!liste.length)return '';
+    return '<div class="card" style="padding:0;overflow:hidden;border-top:3px solid '+renk+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:13px 14px 10px">'
+      +'<div><div style="font-weight:700;letter-spacing:-.01em;color:'+renk+'">'+baslik+'</div>'
+      +'<div class="muted" style="font-size:12px">'+altYazi+' · '+liste.length+' kalem</div></div>'
+      +'<div style="font-weight:700;font-size:17px;white-space:nowrap;color:'+renk+'">'+money(toplam)+'</div></div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+      +'<thead><tr style="background:#f2ebdd">'
+      +'<th style="text-align:left;padding:9px 8px;font-weight:600">Tarih</th>'
+      +'<th style="text-align:left;padding:9px 8px;font-weight:600">Kategori</th>'
+      +'<th style="text-align:right;padding:9px 8px;font-weight:600">Tutar</th>'
+      +'<th style="width:34px"></th></tr></thead><tbody>'
+      +liste.map(satir).join('')
+      +'<tr style="border-top:2px solid '+renk+';background:#faf6ee">'
+      +'<td colspan="2" style="padding:11px 8px;font-weight:700">'+baslik+' toplamı</td>'
+      +'<td style="padding:11px 8px;text-align:right;font-weight:700;white-space:nowrap">'+money(toplam)+'</td><td></td></tr>'
+      +'</tbody></table></div>';
+  };
+
+  let html=blok('BORÇ',borcR,tBorc,'var(--danger)','çıkan para')
+          +blok('ALACAK',alacakR,tAlacak,'var(--ok)','giren para')
+          +blok('TANIMSIZ',tanimsizR,topla(tanimsizR),'var(--warn)','hesaba katılmıyor');
+  /* Net, iki tarafın farkı — tek TOPLAM satırı yanıltıcıydı. */
+  if(borcR.length||alacakR.length){
+    const netRenk=net<0?'var(--danger)':'var(--ok)';
+    html+='<div class="card" style="border-top:3px solid var(--graphite)">'
+      +'<div style="display:flex;justify-content:space-between;padding:5px 0 9px;border-bottom:1px solid var(--line)">'
+      +'<span>Alacak (giren)</span><b style="color:var(--ok)">'+money(tAlacak)+'</b></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:2px solid var(--graphite)">'
+      +'<span>Borç (çıkan)</span><b style="color:var(--danger)">−'+money(tBorc)+'</b></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:11px 0 2px;font-size:16px">'
+      +'<b>NET</b><b style="color:'+netRenk+'">'+(net<0?'−':'')+money(Math.abs(net))+'</b></div>'
+      +'<div class="muted" style="margin-top:6px">'
+      +(net<0?'Bu dönemde çıkan para girenden fazla.':'Bu dönemde giren para çıkandan fazla.')+'</div></div>';
+  }
+  /* Ayar/güvenlik/yedek kartları en alta: Tablo ekranını açan önce tabloyu
+     görmeli, ayarları değil. */
   // sesli teyit anahtarı
   const sesler=[
-    {k:'kayit',   ad:'Kayıt teyidi',    aciklama:'"Emanet beş bin kaydedildi"'},
+    {k:'kayit',   ad:'Yedek sesi',      aciklama:'Yedek alınınca "yedek alındı" der'},
     {k:'stok',    ad:'Stok teyidi',     aciklama:'"Boya 10 kg çıkışı yapıldı"'},
     {k:'anomali', ad:'Olağandışı uyarı',aciklama:'Tutar çok saparsa uyarır'},
     {k:'ogrenme', ad:'Öğrenme teyidi',  aciklama:'Yeni kelime öğretince'}
   ];
   const acikSayi=sesler.filter(x=>SETTINGS[x.k]!==false).length;
-  html='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+  const ayarlar='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
      +'<div style="font-weight:600">Sesli uyarılar</div>'
      +'<div class="row"><button class="btn sm ghost" onclick="tumSes(true)">Hepsi açık</button>'
      +'<button class="btn sm ghost" onclick="tumSes(false)">Hepsi kapalı</button></div></div>'
-     +'<div class="muted" style="margin-bottom:8px">'+acikSayi+'/4 açık</div>'
+     +'<div class="muted" style="margin-bottom:8px">'+acikSayi+'/4 açık · kayıt sonrası teyit artık sesli okunmuyor</div>'
      +sesler.map(x=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid var(--line)">'
         +'<div style="flex:1"><div style="font-weight:500">'+x.ad+'</div><div class="muted">'+x.aciklama+'</div></div>'
         +'<button class="btn sm '+(SETTINGS[x.k]!==false?'':'ghost')+'" onclick="toggleSes(\''+x.k+'\')">'
@@ -1154,8 +1203,7 @@ function renderTable(){
      +'<div class="row"><button class="btn sm ghost" onclick="logout()">Çıkış Yap</button>'
      +'<button class="btn sm" onclick="backupAll()">Yedek Al</button>'
      +'<label class="btn sm ghost" style="text-align:center">Geri Yükle'
-     +'<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(event)"></label></div></div>'
-     +html;
+     +'<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(event)"></label></div></div>';
 
   // tanımsız kalemleri öğretme
   const unkRows=[];
@@ -1176,7 +1224,7 @@ function renderTable(){
     });
     html+='</div>';
   }
-  box.innerHTML=html;
+  box.innerHTML=html+ayarlar;
 }
 async function teachFromRow(i){
   const sel=document.getElementById('lx'+i); if(!sel)return;
@@ -1198,8 +1246,12 @@ async function delRow(noteId,idx){
 function exportTableCSV(){
   const its=allItems(NOTES);
   if(!its.length){alert('Tanımlı kalem yok.');return;}
-  const rows=its.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,Tutar:i.amount}));
-  rows.push({Tarih:'',Kategori:'TOPLAM',Grup:'',Tutar:its.reduce((a,b)=>a+b.amount,0)});
+  const y=yonAyir(its);
+  const rows=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
+                          Kategori:i.known,Grup:i.grup,Tutar:i.amount}));
+  rows.push({Tarih:'',Yön:'',Kategori:'BORÇ TOPLAMI',Grup:'',Tutar:y.tBorc});
+  rows.push({Tarih:'',Yön:'',Kategori:'ALACAK TOPLAMI',Grup:'',Tutar:y.tAlacak});
+  rows.push({Tarih:'',Yön:'',Kategori:'NET',Grup:'',Tutar:y.net});
   exportCSV(rows,'Tablo_'+todayStr()+'.csv');
 }
 function exportTable(){
@@ -1207,12 +1259,27 @@ function exportTable(){
   if(!its.length){alert('Tanımlı kalem yok.');return;}
   if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
-  const det=its.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount}));
-  det.push({Tarih:'',Kategori:'TOPLAM',Grup:'','Tutar (₺)':its.reduce((a,b)=>a+b.amount,0)});
-  const ws=XLSX.utils.json_to_sheet(det); ws['!cols']=[{wch:18},{wch:24},{wch:26},{wch:14}];
+  const y=yonAyir(its);
+  /* Borç ve alacak ayrı bloklar hâlinde, aralarında boş satır ve kendi
+     toplamlarıyla; en altta net. Tek bir TOPLAM iki tarafı topluyordu. */
+  const blokSatirlari=(baslik,liste,toplam)=>{
+    if(!liste.length)return [];
+    return [{Tarih:baslik,Kategori:'',Grup:'','Tutar (₺)':''}]
+      .concat(liste.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount})))
+      .concat([{Tarih:'',Kategori:baslik+' TOPLAMI',Grup:'','Tutar (₺)':toplam},
+               {Tarih:'',Kategori:'',Grup:'','Tutar (₺)':''}]);
+  };
+  const det=blokSatirlari('BORÇ (çıkan)',y.borc,y.tBorc)
+    .concat(blokSatirlari('ALACAK (giren)',y.alacak,y.tAlacak))
+    .concat([{Tarih:'',Kategori:'NET (alacak − borç)',Grup:'','Tutar (₺)':y.net}]);
+  const ws=XLSX.utils.json_to_sheet(det); ws['!cols']=[{wch:18},{wch:26},{wch:26},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws,'Tablo');
-  const g=groupItems(its).map(x=>({Kategori:x.category,Grup:x.grup,Adet:x.count,Toplam:x.total}));
-  const ws2=XLSX.utils.json_to_sheet(g); ws2['!cols']=[{wch:24},{wch:26},{wch:10},{wch:16}];
+  const g=groupItems(its).map(x=>({Kategori:x.category,Yön:YON_AD[yonOf(x.category)]||'Borç',
+                                   Grup:x.grup,Adet:x.count,Toplam:x.total}));
+  g.push({Kategori:'BORÇ TOPLAMI',Yön:'',Grup:'',Adet:y.borc.length,Toplam:y.tBorc});
+  g.push({Kategori:'ALACAK TOPLAMI',Yön:'',Grup:'',Adet:y.alacak.length,Toplam:y.tAlacak});
+  g.push({Kategori:'NET',Yön:'',Grup:'',Adet:'',Toplam:y.net});
+  const ws2=XLSX.utils.json_to_sheet(g); ws2['!cols']=[{wch:24},{wch:10},{wch:26},{wch:10},{wch:16}];
   XLSX.utils.book_append_sheet(wb,ws2,'Özet');
   return writeWorkbook(wb,'Tablo_'+todayStr()+'.xlsx');
 }
@@ -1373,23 +1440,37 @@ function report(kind){
   const list=NOTES.filter(n=>new Date(n.createdAt)>=from);
   const box=document.getElementById('reportBox');
   const its=allItems(list);
-  const groups=groupItems(its);
-  const grandTotal=its.reduce((a,b)=>a+b.amount,0);
+  const y=yonAyir(its);
   const head=`<div class="card"><b>${kind==='week'?'Son 7 gün':'Bu ay'}</b>
-      <div class="muted" style="margin-top:6px">${list.length} kayıt · ${its.length} kalem · Genel toplam <b style="color:var(--ink)">${money(grandTotal)}</b></div>
+      <div class="muted" style="margin-top:6px">${list.length} kayıt · ${its.length} kalem</div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0 0;border-top:1px solid var(--line);margin-top:9px">
+        <span>Alacak (giren)</span><b style="color:var(--ok)">${money(y.tAlacak)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0 9px;border-bottom:2px solid var(--graphite)">
+        <span>Borç (çıkan)</span><b style="color:var(--danger)">−${money(y.tBorc)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 0 0;font-size:16px">
+        <b>NET</b><b style="color:${y.net<0?'var(--danger)':'var(--ok)'}">${y.net<0?'−':''}${money(Math.abs(y.net))}</b></div>
       <div class="row" style="margin-top:12px">
         <button class="btn sm" onclick="exportReport('excel')">Excel</button>
         <button class="btn sm ghost" onclick="exportReport('word')">Word</button>
         <button class="btn sm ghost" onclick="exportReport('pdf')">PDF</button>
       </div>
       <button class="btn" style="margin-top:10px" onclick="exportFullTemplate()">Tam Excel Şablonu (10 sayfa)</button></div>`;
-  const groupHtml=groups.length?('<div class="card"><b>Gruplu Döküm</b>'+groups.map(g=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)">
-        <div><div style="font-weight:500">${escapeHtml(g.category)}</div>
-          <div class="muted">${g.count} kayıt</div></div>
-        <div style="font-weight:600">${money(g.total)}</div>
-      </div>`).join('')+`<div style="display:flex;justify-content:space-between;padding:13px 0 2px;font-weight:600">
-        <span>Genel Toplam</span><span>${money(grandTotal)}</span></div></div>`):'';
+  /* Gruplu döküm de borç/alacak diye ayrı kartlarda: tek listede toplamak
+     giren ve çıkan parayı aynı kefeye koyuyordu. */
+  const grupKart=(baslik,liste,toplam,renk)=>{
+    const g=groupItems(liste);
+    if(!g.length)return '';
+    return `<div class="card" style="border-top:3px solid ${renk}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <b style="color:${renk}">${baslik}</b><b style="color:${renk}">${money(toplam)}</b></div>`
+      +g.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)">
+        <div><div style="font-weight:500">${escapeHtml(x.category)}</div>
+          <div class="muted">${x.count} kayıt</div></div>
+        <div style="font-weight:600">${money(x.total)}</div>
+      </div>`).join('')+'</div>';
+  };
+  const groupHtml=grupKart('BORÇ · çıkan',y.borc,y.tBorc,'var(--danger)')
+                 +grupKart('ALACAK · giren',y.alacak,y.tAlacak,'var(--ok)');
   const unk=unknownItems(list);
   const unkHtml=unk.length?`<div class="banner">${unk.length} kalem tanımlanamadı ve rapora/Excel'e alınmadı: ${unk.slice(0,6).map(u=>escapeHtml(u.category)).join(', ')}${unk.length>6?'…':''}</div>`:'';
   const items=list.length?list.map(n=>`<div class="card"><span class="pill ${n.type}">${n.type==='voice'?'Ses':'Görsel'}</span><span class="pill">${fmt(n.createdAt)}</span><p class="note-txt">${escapeHtml(n.text)}</p></div>`).join(''):'<div class="empty">Bu dönemde kayıt yok.</div>';
@@ -1404,19 +1485,26 @@ function exportReport(t){
     if(!xlsxHazir())return false;
     const its=allItems(list), groups=groupItems(its);
     const wb=XLSX.utils.book_new();
-    const sum=groups.map(g=>({Kategori:g.category,'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
-    sum.push({Kategori:'GENEL TOPLAM','Kayıt Adedi':its.length,'Toplam Tutar':its.reduce((a,b)=>a+b.amount,0)});
+    const yr=yonAyir(its);
+    const sum=groups.map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
+                              'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
+    sum.push({Kategori:'BORÇ TOPLAMI',Yön:'','Kayıt Adedi':yr.borc.length,'Toplam Tutar':yr.tBorc});
+    sum.push({Kategori:'ALACAK TOPLAMI',Yön:'','Kayıt Adedi':yr.alacak.length,'Toplam Tutar':yr.tAlacak});
+    sum.push({Kategori:'NET',Yön:'','Kayıt Adedi':'','Toplam Tutar':yr.net});
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum),'Özet');
     const det=[];
-    groups.forEach(g=>g.items.forEach(i=>det.push({Kategori:g.category,Tutar:i.amount,Tarih:fmt(i.createdAt),Metin:i.raw})));
+    groups.forEach(g=>g.items.forEach(i=>det.push({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
+                                                   Tutar:i.amount,Tarih:fmt(i.createdAt),Metin:i.raw})));
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det.length?det:[{Kategori:'',Tutar:'',Tarih:'',Metin:''}]),'Detay');
     return writeWorkbook(wb,title+'.xlsx');
   }
-  const _its=allItems(list), _g=groupItems(_its);
+  const _its=allItems(list), _g=groupItems(_its), _y=yonAyir(_its);
   const gTable=_g.length?('<h3 style="font-family:sans-serif">Gruplu Özet</h3><table style="width:100%;border-collapse:collapse;font-family:sans-serif;font-size:13px">'
     +'<tr><th style="text-align:left;border-bottom:1px solid #ccc;padding:6px">Kategori</th><th style="text-align:right;border-bottom:1px solid #ccc;padding:6px">Adet</th><th style="text-align:right;border-bottom:1px solid #ccc;padding:6px">Toplam</th></tr>'
-    +_g.map(g=>`<tr><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(g.category)}</td><td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${g.count}</td><td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${money(g.total)}</td></tr>`).join('')
-    +`<tr><td style="padding:6px;font-weight:bold">GENEL TOPLAM</td><td style="padding:6px;text-align:right;font-weight:bold">${_its.length}</td><td style="padding:6px;text-align:right;font-weight:bold">${money(_its.reduce((a,b)=>a+b.amount,0))}</td></tr></table>`):'';
+    +_g.map(g=>`<tr><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(g.category)} <span style="color:#777">(${YON_AD[yonOf(g.category)]||'Borç'})</span></td><td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${g.count}</td><td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${money(g.total)}</td></tr>`).join('')
+    +`<tr><td style="padding:6px;border-top:2px solid #555">BORÇ (çıkan)</td><td style="padding:6px;text-align:right;border-top:2px solid #555">${_y.borc.length}</td><td style="padding:6px;text-align:right;border-top:2px solid #555">${money(_y.tBorc)}</td></tr>`
+    +`<tr><td style="padding:6px">ALACAK (giren)</td><td style="padding:6px;text-align:right">${_y.alacak.length}</td><td style="padding:6px;text-align:right">${money(_y.tAlacak)}</td></tr>`
+    +`<tr><td style="padding:6px;font-weight:bold">NET</td><td style="padding:6px"></td><td style="padding:6px;text-align:right;font-weight:bold">${_y.net<0?'−':''}${money(Math.abs(_y.net))}</td></tr></table>`):'';
   const body=`<h2 style="font-family:sans-serif">${curReport==='week'?'Haftalık':'Aylık'} Döküm</h2>`+gTable+'<h3 style="font-family:sans-serif">Kayıtlar</h3>'+list.map(n=>`<div style="font-family:sans-serif;margin-bottom:12px"><div style="color:#555;font-size:12px">${fmt(n.createdAt)} · ${n.type==='voice'?'Ses':'Görsel'}</div><div style="white-space:pre-wrap">${escapeHtml(n.text)}</div></div>`).join('');
   if(t==='word'){dl(new Blob(['\ufeff<html><head><meta charset="utf-8"></head><body>'+body+'</body></html>'],{type:'application/msword'}),title+'.doc');}
   else{if(!pdfHazir())return false;const el=document.createElement('div');el.style.padding='16px';el.innerHTML=body;html2pdf().set({margin:10,filename:title+'.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4'}}).from(el).save();}
@@ -1555,7 +1643,6 @@ function exportFullTemplate(){
   const week=NOTES.filter(n=>new Date(n.createdAt)>=new Date(Date.now()-7*864e5));
   const month=NOTES.filter(n=>new Date(n.createdAt)>=new Date(now.getFullYear(),now.getMonth(),1));
   const wIts=allItems(week), mIts=allItems(month);
-  const toplam=a=>a.reduce((x,y)=>x+y.amount,0);
 
   /* 1) KAPAK / ÖZET */
   const kapak=[
@@ -1563,9 +1650,11 @@ function exportFullTemplate(){
     {Alan:'Oluşturma Tarihi',Değer:fmt(now.toISOString())},
     {Alan:'Toplam Kayıt',Değer:NOTES.length},
     {Alan:'Tanımlı Kalem',Değer:its.length},
-    {Alan:'Haftalık Toplam (₺)',Değer:toplam(wIts)},
-    {Alan:'Aylık Toplam (₺)',Değer:toplam(mIts)},
-    {Alan:'Genel Toplam (₺)',Değer:toplam(its)},
+    {Alan:'Haftalık Net (₺)',Değer:yonAyir(wIts).net},
+    {Alan:'Aylık Net (₺)',Değer:yonAyir(mIts).net},
+    {Alan:'Toplam Borç — çıkan (₺)',Değer:yonAyir(its).tBorc},
+    {Alan:'Toplam Alacak — giren (₺)',Değer:yonAyir(its).tAlacak},
+    {Alan:'Genel Net (₺)',Değer:yonAyir(its).net},
     {Alan:'Stok Kalem Sayısı',Değer:STOCK.length},
     {Alan:'Stok Değeri (₺)',Değer:STOCK.reduce((a,b)=>a+b.qty*b.price,0)},
     {Alan:'Bekleyen Çek Adedi',Değer:PAYMENTS.filter(p=>daysUntil(p.dueDate)>=0).length},
@@ -1574,23 +1663,36 @@ function exportFullTemplate(){
   XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(kapak),[26,22]),'Kapak');
 
   /* 2) KATEGORİ ÖZETİ */
-  const ozet=groups.map(g=>({Kategori:g.category,Grup:g.grup,'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
-  ozet.push({Kategori:'GENEL TOPLAM',Grup:'','Kayıt Adedi':its.length,'Toplam Tutar':toplam(its)});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(ozet.length?ozet:[{Kategori:'',Grup:'','Kayıt Adedi':'','Toplam Tutar':''}]),[24,26,12,16]),'Kategori Özeti');
+  const yAll=yonAyir(its);
+  const ozet=groups.map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
+                             Grup:g.grup,'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
+  ozet.push({Kategori:'BORÇ TOPLAMI',Yön:'',Grup:'','Kayıt Adedi':yAll.borc.length,'Toplam Tutar':yAll.tBorc});
+  ozet.push({Kategori:'ALACAK TOPLAMI',Yön:'',Grup:'','Kayıt Adedi':yAll.alacak.length,'Toplam Tutar':yAll.tAlacak});
+  ozet.push({Kategori:'NET',Yön:'',Grup:'','Kayıt Adedi':'','Toplam Tutar':yAll.net});
+  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(ozet),[24,10,26,12,16]),'Kategori Özeti');
 
   /* 3) HAFTALIK */
-  const hg=groupItems(wIts).map(g=>({Kategori:g.category,Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
-  hg.push({Kategori:'HAFTA TOPLAMI',Grup:'',Adet:wIts.length,'Toplam Tutar':toplam(wIts)});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(hg),[24,26,10,16]),'Haftalık Rapor');
+  const yhg=yonAyir(wIts);
+  const hg=groupItems(wIts).map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
+                                   Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
+  hg.push({Kategori:'BORÇ',Yön:'',Grup:'',Adet:yhg.borc.length,'Toplam Tutar':yhg.tBorc});
+  hg.push({Kategori:'ALACAK',Yön:'',Grup:'',Adet:yhg.alacak.length,'Toplam Tutar':yhg.tAlacak});
+  hg.push({Kategori:'NET',Yön:'',Grup:'',Adet:'','Toplam Tutar':yhg.net});
+  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(hg),[24,10,26,10,16]),'Haftalık Rapor');
 
   /* 4) AYLIK */
-  const mg=groupItems(mIts).map(g=>({Kategori:g.category,Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
-  mg.push({Kategori:'AY TOPLAMI',Grup:'',Adet:mIts.length,'Toplam Tutar':toplam(mIts)});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(mg),[24,26,10,16]),'Aylık Rapor');
+  const ymg=yonAyir(mIts);
+  const mg=groupItems(mIts).map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
+                                   Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
+  mg.push({Kategori:'BORÇ',Yön:'',Grup:'',Adet:ymg.borc.length,'Toplam Tutar':ymg.tBorc});
+  mg.push({Kategori:'ALACAK',Yön:'',Grup:'',Adet:ymg.alacak.length,'Toplam Tutar':ymg.tAlacak});
+  mg.push({Kategori:'NET',Yön:'',Grup:'',Adet:'','Toplam Tutar':ymg.net});
+  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(mg),[24,10,26,10,16]),'Aylık Rapor');
 
   /* 5) HAREKET DETAYI */
-  const det=its.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,Kaynak:i.raw}));
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(det.length?det:[{Tarih:'',Kategori:'',Grup:'','Tutar (₺)':'',Kaynak:''}]),[18,22,26,14,34]),'Hareket Detayı');
+  const det=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
+                         Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,Kaynak:i.raw}));
+  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(det.length?det:[{Tarih:'',Yön:'',Kategori:'',Grup:'','Tutar (₺)':'',Kaynak:''}]),[18,10,22,26,14,34]),'Hareket Detayı');
 
   /* 6) ÇEK ÖDEMELERİ */
   const cek=PAYMENTS.map(p=>({Açıklama:p.title,Tutar:p.amount||'','Vade Tarihi':fmtDate(p.dueDate),
@@ -1609,8 +1711,9 @@ function exportFullTemplate(){
   XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(mv.length?mv:[{Tarih:'',Ürün:'',Kategori:'',Hareket:'',Miktar:'',Birim:'',Not:''}]),[18,26,26,10,10,10,24]),'Stok Hareketleri');
 
   /* 9) TANIMLI KATEGORİLER (sözlük) */
-  const sozluk=CATEGORY_MAP.map(c=>({Kategori:c.ad,Grup:c.grup,'Tanınan Kelimeler':c.kelimeler.join(', ')}));
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(sozluk),[24,28,50]),'Tanımlı Kategoriler');
+  const sozluk=CATEGORY_MAP.map(c=>({Kategori:c.ad,Yön:YON_AD[c.yon]||'Borç',Grup:c.grup,
+                                     'Tanınan Kelimeler':c.kelimeler.join(', ')}));
+  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(sozluk),[24,10,28,50]),'Tanımlı Kategoriler');
 
   /* 10) TANIMLANAMAYAN (bilgi amaçlı, toplamlara dahil değil) */
   const unk=unknownItems(NOTES).map(u=>({Tarih:fmt(u.createdAt),'Algılanan Metin':u.category,'Tutar':u.amount,Not:'Kategori tanımlı değil - toplamlara dahil edilmedi'}));
@@ -1699,7 +1802,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.2";
+const APP_VERSION="2026-08-08.3";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

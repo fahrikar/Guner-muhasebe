@@ -9,12 +9,38 @@ Excel/CSV olarak dışa aktar. Tek dosyalık web uygulaması — build adımı y
 1. PIN ile giriş yap.
 2. Ana ekranda mikrofona **basılı tut**, konuş, bırak. Konuşma yazıya
    dökülür, tutarlar ayrıştırılıp kategorilere bağlanır ve kaydedilir.
-3. **Tablo** ekranında kalemleri gör, tanınmayanları bir kez öğret.
+3. **Tablo** ekranında kalemleri gör (borç ve alacak ayrı bloklarda),
+   tanınmayanları bir kez öğret.
 4. **Rapor**, **Stok**, **Çekler** ekranları (yalnız patron).
 5. Excel / CSV çıktısı her ekranın kendi düğmesinden alınır.
 
 Sesli komutla stok da hareket ettirilebilir: "boya 10 kg çıktı" gibi bir
 cümle stoktan düşer.
+
+## Borç / Alacak
+
+Tablo ve raporlar kalemleri iki ayrı blokta gösterir; tek listede iç içe
+durmazlar:
+
+| Blok | Ne | Renk |
+|---|---|---|
+| **BORÇ** | çıkan para — gider, ödeme, hammadde alımı | kırmızı |
+| **ALACAK** | giren para — tahsilat | yeşil |
+| **TANIMSIZ** | kategorisi tanınmayan; hiçbir tarafa ve Excel'e girmez | sarı |
+
+Her bloğun kendi çizgisi ve kendi toplamı var; altta **NET = alacak − borç**.
+Excel, CSV, Word ve PDF çıktıları da aynı ayrımı taşır (`Yön` kolonu +
+ayrı toplamlar + net).
+
+Bir kalem hangi tarafa düşüyor? `index.html` içindeki `CATEGORY_MAP`
+listesinde her kategorinin `yon` alanı var. Şu an **yalnız Tahsilat**
+alacak, diğerlerinin hepsi borç tarafında. Bir kategori yanlış taraftaysa
+o satırdaki `yon` değerini değiştirmek yeter — tablo, rapor ve Excel'in
+üçü de aynı yerden okuyor, geçmiş kayıtlar da kendiliğinden düzelir
+(yön kayıtlarda saklanmıyor, kategoriden okunuyor).
+
+> Dikkat: **Emanet** şu an borç (çıkan) tarafında. İşletmede bunun anlamı
+> farklıysa `CATEGORY_MAP` içinde `yon:'alacak'` yap.
 
 ## Roller
 
@@ -160,6 +186,9 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
 - SheetJS 0.18.5'te `xlsx.read` için bilinen bir güvenlik açığı var
   (CVE-2023-30533). Bu uygulama Excel **yazıyor**, hiç okumuyor; bu yüzden
   etkilenmiyor. Yine de kütüphane güncellenirse iyi olur.
+- Kayıt sonrası teyit artık sesli okunmuyor; onay kutusu ekranda görünüyor.
+  Stok teyidi, olağandışı tutar uyarısı ve öğrenme teyidi sesli kalmaya
+  devam ediyor (Tablo → Sesli uyarılar'dan kapatılabilir).
 - Çek hatırlatması yalnız uygulama açıkken/öne geldiğinde çalışır; arka
   planda bildirim gönderen bir servis yok.
 - Uygulama içinden yapılan PIN değişikliği cihazlar arasında eşitlenmiyor.

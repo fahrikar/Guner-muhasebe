@@ -137,13 +137,53 @@ try{
   check("çek eklendi",(await page.textContent("#payList")).includes("Ahmet"));
   check("tırnaklı metin arayüzü bozmuyor",(await page.textContent("#payList")).includes("Ahmet'e çek"));
 
-  /* sesli kayıt yerine metinden kayıt */
-  await page.evaluate(()=>{document.getElementById('voiceText').value='emanet beş bin, yakıt 2.500';});
+  /* sesli kayıt yerine metinden kayıt — biri borç, biri alacak tarafına */
+  await page.evaluate(()=>{document.getElementById('voiceText').value='emanet beş bin, yakıt 2.500, tahsilat 12.000';});
   await page.evaluate(()=>saveNote('voice'));
   await page.waitForTimeout(300);
   await page.evaluate(()=>go('notes'));
   const tablo=await page.textContent("#tableBox");
   check("konuşma kalemlere ayrıldı",tablo.includes("Emanet")&&tablo.includes("Yakıt"),tablo.slice(0,120));
+
+  /* --- borç / alacak ayrımı --- */
+  check("tabloda BORÇ ve ALACAK blokları ayrı",
+    tablo.includes("BORÇ")&&tablo.includes("ALACAK")&&tablo.includes("NET"),tablo.slice(0,160));
+  const yon=await page.evaluate(()=>{
+    const y=yonAyir(allItems(NOTES));
+    return {borc:y.borc.map(i=>i.known),alacak:y.alacak.map(i=>i.known),
+            tBorc:y.tBorc,tAlacak:y.tAlacak,net:y.net};
+  });
+  check("tahsilat alacak tarafında",yon.alacak.includes("Tahsilat"),JSON.stringify(yon.alacak));
+  check("gider kalemleri borç tarafında",
+    yon.borc.includes("Yakıt")&&yon.borc.includes("Emanet"),JSON.stringify(yon.borc));
+  check("net = alacak − borç",yon.net===yon.tAlacak-yon.tBorc,JSON.stringify(yon));
+  check("borç ve alacak tek toplamda karışmıyor",yon.tBorc>0&&yon.tAlacak>0&&yon.net!==yon.tBorc+yon.tAlacak);
+
+  /* Excel'de de yön taşınıyor mu */
+  const excelYon=await page.evaluate(()=>{
+    let sheets=null;
+    const orj=XLSX.write;
+    XLSX.write=(wb,o)=>{sheets=Object.keys(wb.Sheets).map(n=>XLSX.utils.sheet_to_json(wb.Sheets[n]));return orj(wb,o);};
+    exportTable();
+    XLSX.write=orj;
+    return JSON.stringify(sheets);
+  });
+  check("Excel'de borç/alacak blokları ve net var",
+    excelYon.includes("BORÇ")&&excelYon.includes("ALACAK")&&excelYon.includes("NET"),
+    excelYon.slice(0,200));
+
+  /* --- kayıt sonrası sesli teyit kapalı --- */
+  const konusma=await page.evaluate(async()=>{
+    const soylenen=[];
+    const orj=window.speechSynthesis&&window.speechSynthesis.speak;
+    if(window.speechSynthesis)window.speechSynthesis.speak=u=>soylenen.push(u.text);
+    document.getElementById('voiceText').value='kira 3.000';
+    await saveNote('voice');
+    if(window.speechSynthesis&&orj)window.speechSynthesis.speak=orj;
+    return soylenen;
+  });
+  check("kayıttan sonra sesli teyit yok",konusma.length===0,JSON.stringify(konusma));
+  await page.waitForTimeout(200);
 
   /* 5 — KALICILIK: sayfayı yenile, tekrar gir */
   await page.reload();
