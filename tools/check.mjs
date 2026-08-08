@@ -132,5 +132,52 @@ const blocking=[...html.matchAll(/<script(?![^>]*\bdefer\b)(?![^>]*\basync\b)[^>
 if(blocking.length)bad(`${blocking.length} adet defer'siz <script src> var; sayfa yüklenene kadar boş kalır.`);
 else ok("dış script'lerin hepsi defer");
 
+/* 10 — sesli komut ayrıştırıcısı.
+   Bu bölüm iki kez bozuldu ve iki kez "tanınan kalem yok" diye geri geldi;
+   çünkü tek testi "beş bin" idi, yani yalnız çalışan yolu deniyordu. Buradaki
+   cümleler bozulan yolları tutuyor:
+     - rakam + çarpan kelimesi ("12 bin") — çarpan düşünce 12.000 ₺ 12 ₺ olur
+     - tutarın kategoriden ÖNCE söylenmesi ("5000 fabrika gideri")
+     - ondalık ("1,5 milyon") — virgül silinince on kat şişer
+   Ayrıştırıcı index.html'den olduğu gibi okunur; kopya tutulmaz ki
+   uygulamayla test birbirinden ayrı düşmesin. */
+{
+  const bas=html.indexOf("const NUMW="), son=html.indexOf("function money(n)");
+  if(bas<0||son<0||son<=bas)bad("ayrıştırıcı index.html içinde bulunamadı (test güncellenmeli).");
+  else{
+    const durumlar=[
+      ["işçi ödemesi 12 bin",              [["İşçi Ödemesi",12000]]],
+      ["kira 15 bin lira ödedim",          [["Kira",15000]]],
+      ["tahsilat 50 bin geldi",            [["Tahsilat",50000]]],
+      ["5000 fabrika gideri",              [["Fabrika Gideri",5000]]],
+      ["yüz bin tahsilat",                 [["Tahsilat",100000]]],
+      ["boya beş bin",                     [["Boya Hammaddesi",5000]]],
+      ["mazot on iki bin",                 [["Yakıt",12000]]],
+      ["fabrika gideri 5000",              [["Fabrika Gideri",5000]]],
+      ["1,5 milyon çek",                   [["Çek",1500000]]],
+      ["işçi 2 bin 500",                   [["İşçi Ödemesi",2500]]],
+      ["boya 2500 ve tiner 800",           [["Boya Hammaddesi",2500],["Boya Hammaddesi",800]]],
+      ["bugün fabrika gideri 5000 tl oldu",[["Fabrika Gideri",5000]]],
+      ["çimento 7.500 tl",                 [["İnşaat Malzemesi",7500]]],
+      ["5000 fabrika gideri 3000 boya",    [["Fabrika Gideri",5000],["Boya Hammaddesi",3000]]],
+      ["elektrik 4200 su faturası 1300",   [["Elektrik",4200],["Su",1300]]],
+      ["emanet beş bin, yakıt 2.500, tahsilat 12.000",
+                                           [["Emanet",5000],["Yakıt",2500],["Tahsilat",12000]]],
+      ["2.500,75 nakliye",                 [["Nakliye",2500.75]]],
+    ];
+    try{
+      // LEXICON dilimin içinde zaten tanımlı (öğrenen sözlük, boş başlar).
+      const parse=new Function(html.slice(bas,son)+"\nreturn parseItems;")();
+      const kotu=durumlar.filter(([cumle,bekle])=>
+        JSON.stringify(parse(cumle).map(i=>[i.known,i.amount]))!==JSON.stringify(bekle));
+      if(kotu.length){
+        kotu.forEach(([cumle,bekle])=>bad(`ayrıştırıcı "${cumle}" -> `
+          +`beklenen ${JSON.stringify(bekle)}, çıkan `
+          +`${JSON.stringify(parse(cumle).map(i=>[i.known,i.amount]))}`));
+      }else ok(`sesli komut ayrıştırıcısı (${durumlar.length} cümle)`);
+    }catch(e){ bad(`ayrıştırıcı çalıştırılamadı: ${e.message}`); }
+  }
+}
+
 console.log(fails.length?`\n${fails.length} kontrol başarısız.`:"\nTüm kontroller geçti.");
 process.exit(fails.length?1:0);

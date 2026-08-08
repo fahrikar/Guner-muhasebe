@@ -847,10 +847,14 @@ const NUMW={'sıfır':0,'bir':1,'iki':2,'üç':3,'uc':3,'dört':4,'dort':4,'beş
   'yedi':7,'sekiz':8,'dokuz':9,'on':10,'yirmi':20,'otuz':30,'kırk':40,'kirk':40,'elli':50,
   'altmış':60,'altmis':60,'yetmiş':70,'yetmis':70,'seksen':80,'doksan':90,'yüz':100,'yuz':100};
 const MULW={'bin':1000,'milyon':1000000,'milyar':1000000000};
+/* Rakamla yazılmış sayı da kelimeyle yazılmış sayı gibi bir "parça" sayılır;
+   yoksa "12 bin" iki ayrı sayı olarak çıkıp 12 ₺ diye kaydediliyordu (bin
+   çarpanı düşüyordu). Sayı bittiğinde arkasına boşluk konur; konmayınca
+   "50 bin geldi" -> "50000geldi" olup kategori adına yapışıyordu. */
 function wordsToNumbers(text){
   const toks=text.split(/(\s+)/);
   const out=[]; let cur=0, seg=0, active=false;
-  const flush=()=>{ if(active){ out.push(String(cur+seg)); cur=0; seg=0; active=false; } };
+  const flush=()=>{ if(active){ out.push(String(cur+seg)+' '); cur=0; seg=0; active=false; } };
   for(let i=0;i<toks.length;i++){
     const t=toks[i];
     if(/^\s+$/.test(t)){ if(!active)out.push(t); continue; }
@@ -864,7 +868,18 @@ function wordsToNumbers(text){
       const m=MULW[w];
       cur+=(seg===0?1:seg)*m; seg=0; active=true; continue;
     }
-    if(/^\d+([.,]\d+)*$/.test(w)&&active){ flush(); out.push(' '+t); continue; }
+    /* `w` noktalamadan arındırılmış hâl; sayısal mı diye ona bakılır ama
+       DEĞER ham parçadan okunur. `w`den okunursa "1,5" -> "15" olur ve
+       "1,5 milyon" on kat şişer. */
+    if(/^\d+$/.test(w)){
+      const ham=t.replace(/[^\d.,]/g,'').replace(/^[.,]+|[.,]+$/g,'');
+      const n=toNumber(ham);
+      if(n!==null){
+        // "5000 3000" iki ayrı tutar; "2 bin 500" tek tutar (2500).
+        if(seg!==0)flush();
+        seg=n; active=true; continue;
+      }
+    }
     flush(); out.push(t);
   }
   flush();
@@ -1037,22 +1052,47 @@ function parseItems(text){
   const FILLER=/(^|\s)(bugün|dün|yarın|oldu|olsun|ödendi|ödedim|aldım|verdim|geldi|gitti|tane|adet|toplam|için|tl|lira|₺)(?=\s|$)/gi;
   const clean=wordsToNumbers(text).replace(/örneğin|ayrıca|bir de/gi,' ').replace(/\s+ve\s+/gi,' ')
                   .replace(/[,;:!?]\s/g,' ').replace(/\s+/g,' ').trim();
-  const re=/([^\d]+?)\s*(\d+(?:[.,]\d+)*)\s*(bin|milyon)?/gi;
-  const out=[]; let m;
+  /* Önce bütün tutarlar bulunur, aralarındaki metin ayrı tutulur. Eskiden
+     kalıp "metin + sayı" idi; "5000 fabrika gideri" gibi tutarın önde
+     söylendiği cümlelerde hiç eşleşme olmuyor ve ekran "Tanınan kalem yok"
+     diyordu. Artık kategori sayının önünde de arkasında da aranıyor. */
+  const re=/(\d+(?:[.,]\d+)*)\s*(bin|milyon|milyar)?/gi;
+  const nums=[]; let m, last=0;
   while((m=re.exec(clean))!==null){
-    let num=toNumber(m[2]); if(num===null)continue;
-    const mult=(m[3]||'').toLowerCase();
+    let num=toNumber(m[1]);
+    if(num===null){ last=re.lastIndex; continue; }
+    const mult=(m[2]||'').toLowerCase();
     if(mult==='bin')num*=1000; else if(mult==='milyon')num*=1000000;
-    let cat=(m[1]||'');
-    let prev=null;
-    while(prev!==cat){prev=cat;cat=cat.replace(FILLER,' ');}
-    cat=cat.replace(/\s+/g,' ').trim();
-    if(!cat)cat='Diğer';
-    cat=cat.charAt(0).toLocaleUpperCase('tr-TR')+cat.slice(1);
-    const mc=matchCategory(cat);
-    out.push({category:cat,amount:num,raw:(m[0]||'').trim(),
-              known:mc?mc.ad:null, grup:mc?mc.grup:null});
+    else if(mult==='milyar')num*=1000000000;
+    nums.push({num,onceki:clean.slice(last,m.index),raw:(m[0]||'').trim()});
+    last=re.lastIndex;
   }
+  if(!nums.length)return [];
+  const sonrasi=clean.slice(last);
+
+  const temizle=s=>{
+    let c=s||'', prev=null;
+    while(prev!==c){prev=c;c=c.replace(FILLER,' ');}
+    c=c.replace(/\s+/g,' ').trim();
+    return c?c.charAt(0).toLocaleUpperCase('tr-TR')+c.slice(1):'';
+  };
+  // i. tutardan sonraki metin = (i+1). tutarın öncesi, yoksa cümlenin kuyruğu
+  const ardindaki=i=>i+1<nums.length?nums[i+1].onceki:sonrasi;
+
+  const out=[]; const kullanilan=new Set();
+  nums.forEach((n,i)=>{
+    let cat=kullanilan.has(i)?'':temizle(n.onceki);
+    let mc=cat?matchCategory(cat):null;
+    if(!mc){
+      const arka=temizle(ardindaki(i));
+      const amc=arka?matchCategory(arka):null;
+      // Arkadaki metni kategori diye kullandıysak bir sonraki tutar onu tekrar sahiplenmesin.
+      if(amc){ cat=arka; mc=amc; kullanilan.add(i+1); }
+      else if(!cat)cat=arka||'Diğer';
+    }
+    out.push({category:cat,amount:n.num,raw:n.raw,
+              known:mc?mc.ad:null, grup:mc?mc.grup:null});
+  });
   return out;
 }
 function money(n){return n.toLocaleString('tr-TR',{minimumFractionDigits:0,maximumFractionDigits:2})+' ₺'}
@@ -1802,7 +1842,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.3";
+const APP_VERSION="2026-08-08.4";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
