@@ -404,6 +404,17 @@
       <div id="loanList"></div>
     </div>
   </section>
+
+  <!-- ŞANTİYELER (yalnız patron) -->
+  <section class="screen" id="sites">
+    <h2>Şantiyeler</h2>
+    <div class="tabs">
+      <div class="tab on" id="tabSanDurum" onclick="siteTab('durum')">Durum</div>
+      <div class="tab" id="tabSanAyar" onclick="siteTab('ayar')">Şantiye tanımla</div>
+    </div>
+    <div id="siteDurum"></div>
+    <div id="siteAyar" style="display:none"></div>
+  </section>
 </main>
 
 <nav>
@@ -417,6 +428,8 @@
     <svg viewBox="0 0 24 24"><path d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5 3.5 16.5z"/><path d="M3.5 7.5 12 11.5l8.5-4"/><line x1="12" y1="11.5" x2="12" y2="20.5"/></svg>Stok</button>
   <button id="nPayments" onclick="go('payments')">
     <svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="2.5"/><line x1="3.5" y1="10" x2="20.5" y2="10"/></svg>Çekler</button>
+  <button id="nSites" onclick="go('sites')">
+    <svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M6 20V9l6-4 6 4v11"/><line x1="10" y1="20" x2="10" y2="14"/><line x1="14" y1="20" x2="14" y2="14"/></svg>Şantiye</button>
 </nav>
 
 <!-- Ayarlar penceresi. İçeriği ayarCiz() dolduruyor; tablo ekranının altında
@@ -681,6 +694,7 @@ async function loadAll(){
   NOTES=await Store.get('notes',[]);
   PAYMENTS=await Store.get('payments',[]);
   LOANS=await Store.get('loans',[]);
+  SANTIYELER=await Store.get('santiyeler',[]);
   LEXICON=await Store.get('lexicon',[]);
   SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
@@ -702,7 +716,7 @@ function logout(){
 function applyRole(){
   const patron=CURRENT.rol==='patron';
   // müdür sadece "Kayıt" (home + tablo) görsün; diğer nav gizlensin
-  ['nReports','nStock','nPayments'].forEach(id=>{
+  ['nReports','nStock','nPayments','nSites'].forEach(id=>{
     const el=document.getElementById(id); if(el)el.style.display=patron?'':'none';
   });
   // başlıkta kim olduğunu göster
@@ -936,7 +950,9 @@ function mergeCloudNotes(cloudNotes){
   cloudNotes.forEach(n=>{ if(n&&n.id)map[n.id]=n; });
   NOTES=Object.values(map).sort((a,b)=>b.id-a.id);
   Store.set('notes',NOTES);
-  renderTable();
+  /* Müdür kaydı bulutta göründüğü anda şantiye ekranı da tazelensin —
+     "anlık takip" bunu gerektiriyor. */
+  renderTable(); renderSites();
 }
 async function pushCloudNote(note){
   if(!cloudOn||!CURRENT)return;
@@ -975,7 +991,7 @@ const Store={
     catch(e){ storageWarn(); return false; }
   }
 };
-let NOTES=[], PAYMENTS=[], LOANS=[];
+let NOTES=[], PAYMENTS=[], LOANS=[], SANTIYELER=[];
 /* Ekrana, rapora ve Excel'e YALNIZ onaylanmış kayıtlar girer.
    Onay ekranından geçen her kayıt onayli:true taşır. Bu işareti taşımayanlar
    onay ekranı gelmeden önce (2026-08-08.8 öncesi) kaydedilmiş eski
@@ -999,10 +1015,10 @@ function banner(text){
 }
 
 /* ---------- navigation ---------- */
-const titles={home:'Sesli & Görsel Kayıt',voice:'Sesli Komut',camera:'Kamera',notes:'Tablo',reports:'Rapor',stock:'Stok Takibi',payments:'Çek Ödemeleri'};
+const titles={home:'Sesli & Görsel Kayıt',voice:'Sesli Komut',camera:'Kamera',notes:'Tablo',reports:'Rapor',stock:'Stok Takibi',payments:'Ödeme ve Alacak',sites:'Şantiyeler'};
 /* Sadece patronun görmesi gereken ekranlar. Menüyü gizlemek yetmez:
    go() doğrudan çağrılabildiği için erişim burada da kapatılır. */
-const PATRON_ONLY=['reports','stock','payments'];
+const PATRON_ONLY=['reports','stock','payments','sites'];
 function go(id){
   /* Giriş yapılmadan hiçbir ekran açılmasın. Eskiden #login satır içi
      display:block taşıdığı için .screen kuralı onu gizleyemiyordu; alt
@@ -1020,6 +1036,7 @@ function go(id){
   if(id==='reports')report(curReport);
   if(id==='stock')renderStock();
   if(id==='payments'){renderPayments();renderLoans();}
+  if(id==='sites')renderSites();
   if(id==='camera')startCam(); else stopCam();
 }
 
@@ -1987,7 +2004,8 @@ async function applyStockCommand(cmd){
 /* ---------- YEDEKLEME / GERİ YÜKLEME ---------- */
 function backupAll(){
   const data={surum:1,tarih:new Date().toISOString(),
-    notes:NOTES,payments:PAYMENTS,loans:LOANS,stock:STOCK,moves:MOVES,lexicon:LEXICON,
+    notes:NOTES,payments:PAYMENTS,loans:LOANS,santiyeler:SANTIYELER,
+    stock:STOCK,moves:MOVES,lexicon:LEXICON,
     serbestYon:SERBEST_YON,settings:SETTINGS};
   saveBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),'Yedek_'+todayStr()+'.json');
   speak('Yedek alındı.','kayit');
@@ -1999,7 +2017,7 @@ async function restoreBackup(ev){
     try{
       const d=JSON.parse(r.result);
       if(!confirm('Yedek yüklenecek ve mevcut veriler değişecek.\n\nYedek tarihi: '+(d.tarih?fmt(d.tarih):'bilinmiyor')+'\nKayıt: '+((d.notes||[]).length)+' · Stok: '+((d.stock||[]).length)+'\n\nDevam edilsin mi?'))return;
-      NOTES=d.notes||[]; PAYMENTS=d.payments||[]; LOANS=d.loans||[];
+      NOTES=d.notes||[]; PAYMENTS=d.payments||[]; LOANS=d.loans||[]; SANTIYELER=d.santiyeler||[];
       STOCK=d.stock||[]; MOVES=d.moves||[];
       LEXICON=d.lexicon||[]; SETTINGS=Object.assign({},SES_VARSAYILAN,d.settings||{});
       /* Serbest kategorilerin yönü de yedekten gelmeli; gelmezse eski
@@ -2009,6 +2027,7 @@ async function restoreBackup(ev){
       await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
       await Store.set('serbestYon',SERBEST_YON); await Store.set('loans',LOANS);
+      await Store.set('santiyeler',SANTIYELER);
       /* Ayarlar da yedekten geldi; pencere açıksa anahtarlar tazelensin. */
       renderTable(); if(ayarAcikMi())ayarCiz();
       alert('✅ Yedek geri yüklendi.');
@@ -2405,6 +2424,144 @@ function fmtDate(iso){const d=new Date(iso+'T00:00');return pad(d.getDate())+'.'
 function daysUntil(iso){const a=new Date(todayStr()+'T00:00');const b=new Date(iso+'T00:00');return Math.round((b-a)/86400000)}
 async function delPay(id){PAYMENTS=PAYMENTS.filter(p=>p.id!==id);await Store.set('payments',PAYMENTS);renderPayments();}
 
+/* ---------- ŞANTİYELER (yalnız patron) ----------
+   Şantiye kaydın ÜZERİNE yazılmıyor; müdür–şantiye eşleşmesinden okunuyor.
+   Böylece bir müdür başka şantiyeye atandığında ya da şantiyenin adı
+   değiştiğinde geçmiş kendiliğinden düzeliyor — kategori yönünün sözlükten
+   okunmasıyla aynı gerekçe. Karşılığı şu: bir müdür şantiye değiştirirse
+   ESKİ kayıtları da yeni şantiyede görünür. Müdürler şantiyelerine sabit
+   olduğu sürece bu doğru davranış; olmazsa kaydın üzerine yazmaya geçmek
+   gerekir. */
+function santiyeAdi(mudurId){
+  const s=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(mudurId)>=0);
+  return s?s.ad:'';
+}
+function siteTab(hangi){
+  const ayar=hangi==='ayar';
+  document.getElementById('siteDurum').style.display=ayar?'none':'';
+  document.getElementById('siteAyar').style.display=ayar?'':'none';
+  document.getElementById('tabSanDurum').classList.toggle('on',!ayar);
+  document.getElementById('tabSanAyar').classList.toggle('on',ayar);
+  renderSites();
+}
+async function santiyeEkle(){
+  const ad=(document.getElementById('sanAd').value||'').trim();
+  if(!ad){alert('Şantiye adı gerekli.');return;}
+  if(SANTIYELER.some(s=>trLower(s.ad)===trLower(ad))){alert('Bu adda bir şantiye zaten var.');return;}
+  SANTIYELER.push({id:Date.now(),ad:ad,mudurIds:[]});
+  await Store.set('santiyeler',SANTIYELER);
+  document.getElementById('sanAd').value='';
+  renderSites();
+}
+async function santiyeSil(id){
+  const s=SANTIYELER.find(x=>x.id===id); if(!s)return;
+  if(!confirm('"'+s.ad+'" şantiyesi silinsin mi?\n\nKayıtlar silinmez, yalnız şantiye ayrımı kalkar.'))return;
+  SANTIYELER=SANTIYELER.filter(x=>x.id!==id);
+  await Store.set('santiyeler',SANTIYELER);
+  renderSites();
+}
+async function santiyeAdDegis(id){
+  const s=SANTIYELER.find(x=>x.id===id); if(!s)return;
+  const ad=(prompt('Yeni ad:',s.ad)||'').trim();
+  if(!ad||ad===s.ad)return;
+  s.ad=ad; await Store.set('santiyeler',SANTIYELER); renderSites();
+}
+/* Bir müdür tek şantiyede olur: yeni atama öncekini siler. */
+async function mudurAta(mudurId,santiyeId){
+  SANTIYELER.forEach(s=>{ s.mudurIds=(s.mudurIds||[]).filter(m=>m!==mudurId); });
+  const s=SANTIYELER.find(x=>x.id===santiyeId);
+  if(s)s.mudurIds.push(mudurId);
+  await Store.set('santiyeler',SANTIYELER);
+  renderSites();
+}
+function renderSites(){
+  const durum=document.getElementById('siteDurum'), ayar=document.getElementById('siteAyar');
+  if(!durum||!ayar)return;
+
+  /* --- Durum: şantiye başına gelir/gider/net --- */
+  const kova={};
+  const koy=(ad,it)=>{
+    const k=kova[ad]=kova[ad]||{gelir:0,gider:0,adet:0,kategori:{}};
+    const y=yonOf(it.known);
+    if(y==='alacak')k.gelir+=it.amount; else k.gider+=it.amount;
+    k.adet++;
+    k.kategori[it.known]=(k.kategori[it.known]||0)+it.amount;
+  };
+  onayliNotes().forEach(n=>{
+    const ad=santiyeAdi(n.mudurId)||'Şantiyesiz';
+    (n.items||[]).forEach(it=>{ if(it.known)koy(ad,it); });
+  });
+  SANTIYELER.forEach(s=>{ kova[s.ad]=kova[s.ad]||{gelir:0,gider:0,adet:0,kategori:{}}; });
+
+  const adlar=Object.keys(kova).sort((a,b)=>
+    (kova[b].gider+kova[b].gelir)-(kova[a].gider+kova[a].gelir));
+  if(!adlar.length){
+    durum.innerHTML='<div class="empty">Henüz şantiye yok.<br>"Şantiye tanımla" sekmesinden ekle ve müdürleri ata.</div>';
+  }else{
+    const tGelir=adlar.reduce((a,k)=>a+kova[k].gelir,0);
+    const tGider=adlar.reduce((a,k)=>a+kova[k].gider,0);
+    let html='<div class="card" style="border-top:3px solid var(--graphite)">'
+      +'<div style="display:flex;justify-content:space-between;padding:4px 0 8px;border-bottom:1px solid var(--line)">'
+      +'<span>Tüm şantiyeler · gelir</span><b class="para" style="color:var(--ok)">'+money(tGelir)+'</b></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:8px 0">'
+      +'<span>Tüm şantiyeler · gider</span><b class="para" style="color:var(--danger)">'+money(tGider)+'</b></div></div>';
+    adlar.forEach(ad=>{
+      const k=kova[ad], net=k.gelir-k.gider;
+      const mudurler=(SANTIYELER.find(s=>s.ad===ad)||{mudurIds:[]}).mudurIds
+        .map(id=>(ROLES.find(r=>r.mudurId===id)||{}).ad).filter(Boolean);
+      const enler=Object.keys(k.kategori).sort((a,b)=>k.kategori[b]-k.kategori[a]).slice(0,4);
+      html+='<div class="card" style="border-top:3px solid '+(net<0?'var(--danger)':'var(--ok)')+'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
+        +'<div><div style="font-weight:700">'+escapeHtml(ad)+'</div>'
+        +'<div class="muted" style="font-size:12px">'
+          +(mudurler.length?escapeHtml(mudurler.join(', ')):'müdür atanmamış')+' · '+k.adet+' kalem</div></div>'
+        +'<div class="para" style="font-weight:700;font-size:17px;white-space:nowrap;color:'
+          +(net<0?'var(--danger)':'var(--ok)')+'">'+(net<0?'−':'')+money(Math.abs(net))+'</div></div>'
+        +'<div style="display:flex;gap:14px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">'
+        +'<div style="flex:1"><div class="muted" style="font-size:12px">Gelir</div>'
+          +'<div class="para" style="font-weight:600;color:var(--ok)">'+money(k.gelir)+'</div></div>'
+        +'<div style="flex:1"><div class="muted" style="font-size:12px">Gider</div>'
+          +'<div class="para" style="font-weight:600;color:var(--danger)">'+money(k.gider)+'</div></div></div>'
+        +(enler.length?'<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">'
+           +enler.map(c=>'<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px">'
+             +'<span>'+escapeHtml(c)+'</span><b class="para">'+money(k.kategori[c])+'</b></div>').join('')
+           +'</div>':'')
+        +'</div>';
+    });
+    durum.innerHTML=html;
+  }
+
+  /* --- Ayar: şantiye ekle, adlandır, müdür ata --- */
+  const mudurler=ROLES.filter(r=>r.rol==='mudur');
+  let a='<div class="card"><div style="font-weight:600;margin-bottom:4px">Yeni şantiye</div>'
+    +'<div class="muted" style="margin-bottom:8px">Örn: Bahçelievler, Sahil Sitesi…</div>'
+    +'<div class="row"><input id="sanAd" placeholder="Şantiye adı" style="flex:1;min-width:150px">'
+    +'<button class="btn sm" onclick="santiyeEkle()">Ekle</button></div></div>';
+  if(SANTIYELER.length){
+    a+='<div class="card"><div style="font-weight:600;margin-bottom:2px">Şantiyeler</div>'
+      +SANTIYELER.map(s=>'<div style="padding:10px 0;border-top:1px solid var(--line)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+        +'<div style="font-weight:600">'+escapeHtml(s.ad)+'</div>'
+        +'<div class="row"><button class="btn sm ghost" onclick="santiyeAdDegis('+s.id+')">Adı</button>'
+        +'<button class="btn sm ghost" onclick="santiyeSil('+s.id+')">Sil</button></div></div></div>').join('')
+      +'</div>';
+  }
+  a+='<div class="card"><div style="font-weight:600;margin-bottom:4px">Müdürler</div>'
+    +'<div class="muted" style="margin-bottom:8px">Her müdür bir şantiyeye bağlanır; girdiği kayıtlar o şantiyeye sayılır.</div>'
+    +mudurler.map(m=>{
+      const s=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(m.mudurId)>=0);
+      const opts='<option value="">— atanmamış —</option>'
+        +SANTIYELER.map(x=>'<option value="'+x.id+'"'+(s&&s.id===x.id?' selected':'')+'>'+escapeHtml(x.ad)+'</option>').join('');
+      return '<div style="padding:10px 0;border-top:1px solid var(--line)">'
+        +'<div style="font-weight:500;margin-bottom:6px">'+escapeHtml(m.ad)+'</div>'
+        +'<select onchange="mudurAta(\''+m.mudurId+'\',Number(this.value)||0)" '
+        +'style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);background:#fffdf8;font-size:14px">'
+        +opts+'</select></div>';
+    }).join('')
+    +'</div>';
+  ayar.innerHTML=a;
+}
+
 /* ---------- VERİLEN BORÇLAR (ALACAKLAR) ----------
    Yalnız bu cihazda tutuluyor — stok ve çekler gibi. Buluta yazılmıyor:
    yayınlanmış veritabanı kuralları yalnız `kayitlar` düğümüne ve yalnız
@@ -2519,7 +2676,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-09.6";
+const APP_VERSION="2026-08-09.7";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

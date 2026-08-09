@@ -119,6 +119,9 @@ try{
   check("müdüre patron sekmeleri gizli",!(await page.isVisible("#nStock")));
   await page.evaluate(()=>go('stock'));
   check("müdür doğrudan çağrıyla da stok göremiyor",!(await page.isVisible("#stock")));
+  check("müdüre şantiye sekmesi gizli",!(await page.isVisible("#nSites")));
+  await page.evaluate(()=>go('sites'));
+  check("müdür doğrudan çağrıyla da şantiye göremiyor",!(await page.isVisible("#sites")));
   await page.evaluate(()=>logout());
   await page.waitForTimeout(200);
 
@@ -371,6 +374,50 @@ try{
     await page.evaluate(()=>!NOTES.some(n=>n.id===1)));
   await page.evaluate(()=>ayarKapat());
   await page.waitForTimeout(150);
+
+  /* --- şantiye bazında takip (yalnız patron) ---
+     Şantiye kaydın üzerine yazılmıyor, müdür–şantiye eşleşmesinden okunuyor:
+     müdür başka şantiyeye atanınca ya da ad değişince geçmiş kendiliğinden
+     düzelmeli. */
+  check("patrona şantiye sekmesi açık",await page.isVisible("#nSites"));
+  await page.evaluate(async()=>{
+    SANTIYELER=[{id:101,ad:'Bahçelievler',mudurIds:['m1']},
+                {id:102,ad:'Sahil Sitesi',mudurIds:['m2']}];
+    await Store.set('santiyeler',SANTIYELER);
+    // m1'e gider, m2'ye gelir yazan iki müdür kaydı
+    NOTES.unshift({id:9001,type:'voice',text:'yakıt 1000',onayli:true,
+      mudur:'Ahmet 1',mudurId:'m1',createdAt:new Date().toISOString(),
+      items:[{category:'yakıt',amount:1000,known:'Yakıt',grup:'Gider'}]});
+    NOTES.unshift({id:9002,type:'voice',text:'tahsilat 4000',onayli:true,
+      mudur:'Hamdi 2',mudurId:'m2',createdAt:new Date().toISOString(),
+      items:[{category:'tahsilat',amount:4000,known:'Tahsilat',grup:'Gelir'}]});
+    await Store.set('notes',NOTES);
+    go('sites');
+  });
+  await page.waitForTimeout(300);
+  const san=await page.textContent("#siteDurum");
+  check("şantiyeler kendi adlarıyla listeleniyor",
+    san.includes("Bahçelievler")&&san.includes("Sahil Sitesi"),san.slice(0,160));
+  check("müdürün gideri kendi şantiyesine sayılıyor",
+    await page.evaluate(()=>santiyeAdi('m1')==='Bahçelievler'));
+  check("şantiye kartında gelir ve gider ayrı",
+    san.includes("Gelir")&&san.includes("Gider")&&san.includes("1.000")&&san.includes("4.000"),
+    san.slice(0,240));
+  check("şantiyesi olmayan müdür ayrı toplanıyor",
+    await page.evaluate(()=>santiyeAdi('m5')===''));
+  /* Müdür başka şantiyeye atanınca geçmiş de oraya geçmeli. */
+  await page.evaluate(()=>mudurAta('m1',102));
+  await page.waitForTimeout(250);
+  check("müdür taşınınca geçmişi de yeni şantiyeye geçiyor",
+    await page.evaluate(()=>santiyeAdi('m1')==='Sahil Sitesi'));
+  check("bir müdür aynı anda tek şantiyede",
+    await page.evaluate(()=>SANTIYELER.filter(s=>s.mudurIds.includes('m1')).length===1));
+  await page.evaluate(async()=>{
+    NOTES=NOTES.filter(n=>n.id!==9001&&n.id!==9002);
+    SANTIYELER=[]; await Store.set('notes',NOTES); await Store.set('santiyeler',SANTIYELER);
+    go('notes');renderTable();
+  });
+  await page.waitForTimeout(200);
 
   /* Rapor kategori toplamlarını gösterir; ham konuşma metinleri artık
      listelenmiyor (sayfayı dolduruyordu). */
