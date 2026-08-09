@@ -181,6 +181,19 @@ else ok("dış script'lerin hepsi defer");
       ["26 ocak yakıt 900",                [["Yakıt",900]]],
       ["26 ocakta nakliye 1500",           [["Nakliye",1500]]],
       ["26.01.2026 elektrik 4200",         [["Elektrik",4200]]],
+      /* Süre ifadeleri de tutar sanılıyordu: "10 milyon verildi 15 gün sonra
+         alınacak" iki kalem çıkarıyordu — 10.000.000 ve olmayan bir
+         "Verildi 15 ₺". Son ikisi sıranın kanıtı: süre temizliği sayı
+         birleştirmeden önce çalışmazsa vadedeki sayı tutara karışıyor
+         (15 bin + 2 hafta -> 15002). */
+      ["Mehmet güner'e 10 milyon verildi 15 gün sonra alınacak",
+                                           [[null,10000000]]],
+      ["Hamdiye 3 milyon verildi 27 Eylül'de geri verecek",
+                                           [[null,3000000]]],
+      ["boya 2000 3 ay sonra ödenecek",     [["Boya Hammaddesi",2000]]],
+      ["yakıt 900 30 gün vadeli",           [["Yakıt",900]]],
+      ["kira 15 bin 2 hafta içinde",        [["Kira",15000]]],
+      ["nakliye 1200 bir yıl sonra",        [["Nakliye",1200]]],
     ];
     try{
       // LEXICON dilimin içinde zaten tanımlı (öğrenen sözlük, boş başlar).
