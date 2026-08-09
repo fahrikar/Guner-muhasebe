@@ -446,6 +446,32 @@ try{
   check("fabrika girişleri listeleniyor",fab.includes("Yakıt")&&fab.includes("1.000"),fab.slice(0,240));
   check("şantiye kaydı fabrikaya karışmıyor",!fab.includes("Tahsilat"),fab.slice(0,240));
 
+  /* Söve satışı fabrikanın geliri: şantiye müdürü satsa bile fabrikaya
+     yazılmalı, şantiyeye değil. Yoksa aynı para yanlış yerde birikir. */
+  await page.evaluate(async()=>{
+    NOTES.unshift({id:9003,type:'voice',text:'söve satışı 25000',onayli:true,
+      mudur:'Test Müdür 2',mudurId:'m2',createdAt:new Date().toISOString(),
+      items:[{category:'söve satışı',amount:25000,known:'Söve Satışı',grup:'Fabrika'}]});
+    await Store.set('notes',NOTES);
+    go('factory');
+  });
+  await page.waitForTimeout(250);
+  const fab2=await page.textContent("#factoryBox");
+  check("söve satışı fabrikaya işleniyor",
+    fab2.includes("Söve Satışı")&&fab2.includes("25.000"),fab2.slice(0,260));
+  check("söve satışı gelir tarafında",
+    await page.evaluate(()=>yonOf('Söve Satışı')==='alacak'));
+  await page.evaluate(()=>go('sites'));
+  await page.waitForTimeout(250);
+  check("söve satışı satan müdürün şantiyesine yazılmıyor",
+    !(await page.textContent("#siteDurum")).includes("Söve Satışı"),
+    (await page.textContent("#siteDurum")).slice(0,220));
+  await page.evaluate(async()=>{
+    NOTES=NOTES.filter(n=>n.id!==9003); await Store.set('notes',NOTES);
+    go('factory');
+  });
+  await page.waitForTimeout(200);
+
   /* Müdür başka yere atanınca geçmiş de oraya geçmeli. */
   await page.evaluate(()=>mudurAta('m1',101));
   await page.waitForTimeout(250);

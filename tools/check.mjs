@@ -194,6 +194,14 @@ else ok("dış script'lerin hepsi defer");
       ["yakıt 900 30 gün vadeli",           [["Yakıt",900]]],
       ["kira 15 bin 2 hafta içinde",        [["Kira",15000]]],
       ["nakliye 1200 bir yıl sonra",        [["Nakliye",1200]]],
+      /* Satış gelirdir, hammadde giderdir. Tek "söve" anahtarı yüzünden
+         satışlar borç tarafına yazılıyordu. Son iki satır ayrımın hâlâ
+         durduğunu tutuyor. */
+      ["söve satışı 25000",                 [["Söve Satışı",25000]]],
+      ["söve satıldı 40 bin",               [["Söve Satışı",40000]]],
+      ["sove satis 12000",                  [["Söve Satışı",12000]]],
+      ["söve 25000",                        [["Söve Hammaddesi",25000]]],
+      ["strafor 3000",                      [["Söve Hammaddesi",3000]]],
     ];
     try{
       // LEXICON dilimin içinde zaten tanımlı (öğrenen sözlük, boş başlar).
@@ -252,7 +260,22 @@ else ok("dış script'lerin hepsi defer");
   }catch(e){ bad(`borç algılayıcı çalıştırılamadı: ${e.message}`); }
 }
 
-/* 12 — belge muafiyeti doğru kişilere bakıyor mu?
+/* 12 — söve satışı hem gelir hem fabrika kalemi olmalı.
+   İkisi ayrı yerde tanımlı: yön CATEGORY_MAP'te, fabrikaya yönlenme
+   FABRIKA_KATEGORILERI'nde. Biri değişip diğeri unutulursa satış ya gider
+   sayılır ya da şantiyeye yazılır; ikisi de sessizce yanlış olur. */
+{
+  const satis=(html.match(/\{ad:'Söve Satışı',[^}]*yon:'(\w+)'/)||[])[1];
+  const fabListesi=(html.match(/const FABRIKA_KATEGORILERI=\[([^\]]*)\]/)||[])[1];
+  if(!satis)bad("'Söve Satışı' kategorisi bulunamadı.");
+  else if(satis!=="alacak")bad(`'Söve Satışı' yönü '${satis}' — satış gelir olmalı (alacak).`);
+  else if(fabListesi===undefined)bad("FABRIKA_KATEGORILERI bulunamadı.");
+  else if(!fabListesi.includes("Söve Satışı"))
+    bad("'Söve Satışı' FABRIKA_KATEGORILERI'nde yok — satış şantiyeye yazılır.");
+  else ok("söve satışı gelir ve fabrika kalemi");
+}
+
+/* 13 — belge muafiyeti doğru kişilere bakıyor mu?
    Muafiyet 'patron' ve 'm4' diye kişi kimliğiyle yazılı. Rol listesindeki
    sıra değişir de Ömer başka bir mudurId alırsa muafiyet sessizce yanlış
    kişiye geçer — kimse fark etmez. Burası o bağı tutuyor. */
