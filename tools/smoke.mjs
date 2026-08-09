@@ -216,6 +216,31 @@ try{
 
   /* Sürüm ekranda görünmeli: telefonda eski yapıda kalınıp kalınmadığını
      anlamanın tek yolu bu. */
+  /* Tablo düzeni: sütunlar iki kart arasında da aynı hizada olmalı, rakamlar
+     eşit genişlikte, silme düğmesinin dokunma alanı parmakla tutturulabilir
+     olmalı. Bunlar gözle bakılınca fark edilmeyip sessizce bozulan şeyler. */
+  const duzen=await page.evaluate(()=>{
+    const t=[...document.querySelectorAll('#tableBox table.tbl')];
+    if(!t.length)return null;
+    const kolon=t.map(x=>[...x.querySelectorAll('col')].map(c=>c.getBoundingClientRect().width));
+    const num=document.querySelector('#tableBox td.num');
+    const btn=document.querySelector('#tableBox td.sil button');
+    const bs=btn?btn.getBoundingClientRect():null;
+    return {tablo:t.length,kolon,
+      sabit:getComputedStyle(t[0]).tableLayout,
+      tnum:num?getComputedStyle(num).fontVariantNumeric:'',
+      btnW:bs?Math.round(bs.width):0, btnH:bs?Math.round(bs.height):0};
+  });
+  check("tablo sütunları sabit genişlikte",duzen&&duzen.sabit==='fixed',JSON.stringify(duzen));
+  check("tutarlar eşit genişlikte rakamla yazılıyor",
+    duzen&&duzen.tnum.includes('tabular-nums'),duzen&&duzen.tnum);
+  check("silme düğmesi parmakla tutturulabiliyor (>=36px)",
+    duzen&&duzen.btnW>=36&&duzen.btnH>=36,duzen&&(duzen.btnW+'x'+duzen.btnH));
+  /* Birden çok blok varsa (BORÇ + ALACAK) sütunları birbirini tutmalı. */
+  if(duzen&&duzen.tablo>1)
+    check("BORÇ ve ALACAK sütunları aynı hizada",
+      duzen.kolon[0].every((w,i)=>Math.abs(w-duzen.kolon[1][i])<1),JSON.stringify(duzen.kolon));
+
   /* Ayarlar artık başlıktaki dişlinin arkasında; tabloyu doldurmuyor. */
   check("tablo ekranı ayar kartlarıyla dolmuyor",
     !serbestTablo.includes("Sesli uyarılar")&&!serbestTablo.includes("Yedekleme"),

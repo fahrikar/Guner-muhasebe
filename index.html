@@ -142,6 +142,28 @@
     padding:14px 16px;margin-bottom:14px;font-size:14px;box-shadow:var(--sh-sm)}
   .check{width:20px;height:20px;accent-color:#3a3a3c}
   .empty{text-align:center;color:var(--sub);padding:46px 10px}
+
+  /* Para ve tarih rakamları eşit genişlikte olsun: orantılı yazıda 1 ile 8
+     aynı yeri tutmadığı için alt alta gelen tutarlar kayık görünüyordu. */
+  .para{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  /* table-layout:fixed + colgroup: sütun genişliği içeriğe göre değil sabit.
+     Yoksa BORÇ ve ALACAK kartları kendi içeriğine göre ölçülüp iki tablonun
+     sütunları birbirini tutmuyordu. */
+  .tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+  .tbl th{background:#f2ebdd;font-weight:600;padding:9px 8px;text-align:left}
+  .tbl td{padding:9px 8px;vertical-align:top}
+  .tbl .tar{color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12px}
+  .tbl .num{text-align:right;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums}
+  .tbl th.num{font-weight:600}
+  .tbl .alt{color:var(--sub);font-size:11px;line-height:1.35;margin-top:1px}
+  .tbl td.sil{padding:2px 0;text-align:center}
+  /* Dokunma alanı 38px: eskiden 16px'lik bir işaretti, parmakla zor
+     tutturuluyordu. Görünen çarpı yine küçük — büyütülen alan, işaret değil. */
+  .tbl .sil button{
+    width:38px;height:38px;padding:0;margin:0;border:0;background:none;
+    color:#b23b34;font-size:17px;line-height:1;border-radius:10px;cursor:pointer;
+  }
+  .tbl .sil button:active{background:rgba(178,59,52,.12)}
   .status{font-size:13px;color:var(--sub);min-height:18px;margin-top:10px;text-align:center}
   .tabs{display:flex;gap:8px;margin-bottom:16px}
   .tabs .tab{flex:1;text-align:center;padding:11px;border-radius:14px;background:#f2ebdd;
@@ -1677,34 +1699,38 @@ function renderTable(){
   const topla=a=>a.reduce((x,y)=>x+y.tutar,0);
   const tBorc=topla(borcR), tAlacak=topla(alacakR), net=tAlacak-tBorc;
 
-  const satir=r=>'<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
-      +'<td style="padding:9px 8px;color:var(--sub);white-space:nowrap">'+r.tarih.split(' ')[0]+'</td>'
-      +'<td style="padding:9px 8px">'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
-        +((CURRENT&&CURRENT.rol==='patron'&&r.mudur)?'<div class="muted" style="font-size:11px">'+escapeHtml(r.mudur)+'</div>':'')
-        +(r.belge?'<div class="muted" style="font-size:11px">'+escapeHtml(r.belge)+'</div>':'')
-        +(r.taninan?'<div class="muted" style="font-size:11px">'+escapeHtml(r.grup)+'</div>'
-                   :'<div class="muted" style="font-size:11px">tanımsız · Excel\'e girmez</div>')+'</td>'
-      +'<td style="padding:9px 8px;text-align:right;font-weight:600;white-space:nowrap">'+money(r.tutar)+'</td>'
-      +'<td style="padding:9px 4px;text-align:center"><span onclick="delRow('+r.noteId+','+r.idx+')" style="cursor:pointer;color:#b23b34;font-size:16px">×</span></td></tr>';
+  /* Alt satırlar (müdür, belge, grup) tek satırda birleşti: her biri ayrı
+     div olunca satır yükseliyor ve tutarlar birbirinden uzaklaşıyordu. */
+  const satir=r=>{
+    const alt=[(CURRENT&&CURRENT.rol==='patron'&&r.mudur)?r.mudur:'',r.belge,
+               r.taninan?r.grup:'tanımsız · Excel\'e girmez'].filter(Boolean);
+    return '<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
+      +'<td class="tar">'+r.tarih.split(' ')[0]+'</td>'
+      +'<td>'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
+        +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')+'</td>'
+      +'<td class="num">'+money(r.tutar)+'</td>'
+      +'<td class="sil"><button type="button" aria-label="Sil" '
+        +'onclick="delRow('+r.noteId+','+r.idx+')">×</button></td></tr>';
+  };
 
-  /* Her blok kendi başlığı, kendi çizgisi ve kendi toplamıyla ayrı bir kart. */
+  /* Her blok kendi başlığı, kendi çizgisi ve kendi toplamıyla ayrı bir kart.
+     colgroup iki blokta da aynı: tarih ve tutar sütunları kartlar arasında
+     da aynı hizaya düşsün. */
+  const kolonlar='<colgroup><col style="width:74px"><col>'
+                +'<col style="width:112px"><col style="width:38px"></colgroup>';
   const blok=(baslik,liste,toplam,renk,altYazi)=>{
     if(!liste.length)return '';
     return '<div class="card" style="padding:0;overflow:hidden;border-top:3px solid '+renk+'">'
-      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:13px 14px 10px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:13px 14px 10px">'
       +'<div><div style="font-weight:700;letter-spacing:-.01em;color:'+renk+'">'+baslik+'</div>'
       +'<div class="muted" style="font-size:12px">'+altYazi+' · '+liste.length+' kalem</div></div>'
-      +'<div style="font-weight:700;font-size:17px;white-space:nowrap;color:'+renk+'">'+money(toplam)+'</div></div>'
-      +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
-      +'<thead><tr style="background:#f2ebdd">'
-      +'<th style="text-align:left;padding:9px 8px;font-weight:600">Tarih</th>'
-      +'<th style="text-align:left;padding:9px 8px;font-weight:600">Kategori</th>'
-      +'<th style="text-align:right;padding:9px 8px;font-weight:600">Tutar</th>'
-      +'<th style="width:34px"></th></tr></thead><tbody>'
+      +'<div class="para" style="font-weight:700;font-size:17px;white-space:nowrap;color:'+renk+'">'+money(toplam)+'</div></div>'
+      +'<table class="tbl">'+kolonlar
+      +'<thead><tr><th>Tarih</th><th>Kategori</th><th class="num">Tutar</th><th></th></tr></thead><tbody>'
       +liste.map(satir).join('')
       +'<tr style="border-top:2px solid '+renk+';background:#faf6ee">'
       +'<td colspan="2" style="padding:11px 8px;font-weight:700">'+baslik+' toplamı</td>'
-      +'<td style="padding:11px 8px;text-align:right;font-weight:700;white-space:nowrap">'+money(toplam)+'</td><td></td></tr>'
+      +'<td class="num" style="padding:11px 8px;font-weight:700">'+money(toplam)+'</td><td></td></tr>'
       +'</tbody></table></div>';
   };
 
@@ -1716,11 +1742,11 @@ function renderTable(){
     const netRenk=net<0?'var(--danger)':'var(--ok)';
     html+='<div class="card" style="border-top:3px solid var(--graphite)">'
       +'<div style="display:flex;justify-content:space-between;padding:5px 0 9px;border-bottom:1px solid var(--line)">'
-      +'<span>Alacak (giren)</span><b style="color:var(--ok)">'+money(tAlacak)+'</b></div>'
+      +'<span>Alacak (giren)</span><b class="para" style="color:var(--ok)">'+money(tAlacak)+'</b></div>'
       +'<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:2px solid var(--graphite)">'
-      +'<span>Borç (çıkan)</span><b style="color:var(--danger)">−'+money(tBorc)+'</b></div>'
+      +'<span>Borç (çıkan)</span><b class="para" style="color:var(--danger)">−'+money(tBorc)+'</b></div>'
       +'<div style="display:flex;justify-content:space-between;padding:11px 0 2px;font-size:16px">'
-      +'<b>NET</b><b style="color:'+netRenk+'">'+(net<0?'−':'')+money(Math.abs(net))+'</b></div>'
+      +'<b>NET</b><b class="para" style="color:'+netRenk+'">'+(net<0?'−':'')+money(Math.abs(net))+'</b></div>'
       +'<div class="muted" style="margin-top:6px">'
       +(net<0?'Bu dönemde çıkan para girenden fazla.':'Bu dönemde giren para çıkandan fazla.')+'</div></div>';
   }
@@ -2493,7 +2519,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-09.5";
+const APP_VERSION="2026-08-09.6";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
