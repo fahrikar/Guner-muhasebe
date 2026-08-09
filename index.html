@@ -345,18 +345,42 @@
 
   <!-- PAYMENTS -->
   <section class="screen" id="payments">
-    <h2>Çek Ödemeleri</h2>
-    <div class="card">
-      <label>Açıklama</label>
-      <input id="payTitle" placeholder="Örn: Ahmet'e çek">
-      <label>Tutar (opsiyonel)</label>
-      <input id="payAmount" placeholder="Örn: 15.000 ₺">
-      <label>Ödeme tarihi</label>
-      <input id="payDate" type="date">
-      <button class="btn" style="margin-top:16px" onclick="addPayment()">Ekle</button>
-      <div class="muted" style="margin-top:10px">Ödemeden 1 gün önce uygulamayı açtığında hatırlatılır.</div>
+    <h2>Ödeme ve Alacak</h2>
+    <!-- İki liste bir arada: vereceğim para (çek) ve alacağım para (verilen
+         borç). Ayrı sekme açmak yerine burada, çünkü ikisi de vadeli. -->
+    <div class="tabs">
+      <div class="tab on" id="tabOde" onclick="payTab('ode')">Ödeyeceklerim</div>
+      <div class="tab" id="tabAl" onclick="payTab('al')">Alacaklarım</div>
     </div>
-    <div id="payList"></div>
+
+    <div id="payOde">
+      <div class="card">
+        <label>Açıklama</label>
+        <input id="payTitle" placeholder="Örn: Ahmet'e çek">
+        <label>Tutar (opsiyonel)</label>
+        <input id="payAmount" placeholder="Örn: 15.000 ₺">
+        <label>Ödeme tarihi</label>
+        <input id="payDate" type="date">
+        <button class="btn" style="margin-top:16px" onclick="addPayment()">Ekle</button>
+        <div class="muted" style="margin-top:10px">Ödemeden 1 gün önce uygulamayı açtığında hatırlatılır.</div>
+      </div>
+      <div id="payList"></div>
+    </div>
+
+    <div id="payAl" style="display:none">
+      <div class="card">
+        <label>Kime verildi</label>
+        <input id="loanKisi" placeholder="Örn: Mehmet Güner">
+        <label>Tutar (₺)</label>
+        <input id="loanTutar" inputmode="decimal" placeholder="Örn: 10000">
+        <label>Ne zaman geri alınacak (opsiyonel)</label>
+        <input id="loanVade" type="date">
+        <button class="btn" style="margin-top:16px" onclick="addLoan()">Ekle</button>
+        <div class="muted" style="margin-top:10px">Sesli de girebilirsin:
+          "Mehmet'e 10 bin verildi 15 gün sonra alınacak".</div>
+      </div>
+      <div id="loanList"></div>
+    </div>
   </section>
 </main>
 
@@ -382,6 +406,29 @@
       <button type="button" class="btn sm ghost" onclick="ayarKapat()">Kapat</button>
     </div>
     <div id="ayarIcerik"></div>
+  </div>
+</div>
+
+<!-- Verilen borç onay penceresi. Cümlede hem verme hem geri dönüş fiili
+     geçtiğinde açılır; kişi, tutar ve vade düzeltilebilir. -->
+<div id="borcKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
+  <div style="background:#fffdf8;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto">
+    <div style="font-weight:700;font-size:16px">Borç verme kaydı</div>
+    <div class="muted" id="borcDuyulan" style="margin:4px 0 12px"></div>
+    <label for="borcKisi">Kime verildi</label>
+    <input id="borcKisi" autocomplete="off" placeholder="Örn: Mehmet Güner">
+    <label for="borcTutar">Tutar (₺)</label>
+    <input id="borcTutar" inputmode="decimal">
+    <label for="borcVade">Ne zaman geri alınacak</label>
+    <input id="borcVade" type="date">
+    <div class="muted" id="borcUyari" style="min-height:18px;margin-top:7px"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" style="flex:1" onclick="borcOnayla()">Alacak olarak kaydet</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn sm ghost" style="flex:1" onclick="borcDegil()">Bu bir gider, normal kaydet</button>
+      <button class="btn sm ghost" onclick="borcVazgec()">Vazgeç</button>
+    </div>
   </div>
 </div>
 
@@ -611,6 +658,7 @@ async function enterApp(r){
 async function loadAll(){
   NOTES=await Store.get('notes',[]);
   PAYMENTS=await Store.get('payments',[]);
+  LOANS=await Store.get('loans',[]);
   LEXICON=await Store.get('lexicon',[]);
   SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
@@ -641,6 +689,48 @@ function applyRole(){
   document.getElementById('btnAyar').style.display='';
   // müdür ana ekranda sadece mikrofonu görsün (kamera opsiyonel kalsın)
   document.body.classList.toggle('mudur',!patron);
+}
+
+/* ---------- VERİLEN BORÇ ONAYI ----------
+   Üç sonuç döner: {tur:'borc',...} alacak olarak kaydedilsin, {tur:'gider'}
+   normal kayıt akışına devam edilsin, null vazgeçildi. */
+let borcCoz=null;
+function borcSor(loan,duyulan){
+  return new Promise(res=>{
+    const kat=document.getElementById('borcKat');
+    if(!kat){res({tur:'gider'});return;}
+    borcCoz=res;
+    document.getElementById('borcDuyulan').textContent='Duyulan: '+duyulan;
+    document.getElementById('borcKisi').value=(loan.kisi||'').replace(/['’]?[ea]$/,'');
+    document.getElementById('borcTutar').value=loan.tutar;
+    document.getElementById('borcVade').value=loan.vade||'';
+    document.getElementById('borcUyari').textContent='';
+    kat.style.display='flex';
+  });
+}
+function borcKapat(sonuc){
+  const kat=document.getElementById('borcKat'); if(kat)kat.style.display='none';
+  const f=borcCoz; borcCoz=null; if(f)f(sonuc);
+}
+function borcOnayla(){
+  const kisi=(document.getElementById('borcKisi').value||'').trim();
+  const tutar=toNumber(document.getElementById('borcTutar').value||'');
+  const uy=document.getElementById('borcUyari');
+  if(!kisi){uy.textContent='Kime verildiğini yaz.';return;}
+  if(!(tutar>0)){uy.textContent='Tutar sıfırdan büyük olmalı.';return;}
+  borcKapat({tur:'borc',kisi:kisi,tutar:tutar,vade:document.getElementById('borcVade').value||''});
+}
+function borcDegil(){ borcKapat({tur:'gider'}); }
+function borcVazgec(){
+  if(!confirm('Bu kayıt hiç oluşmayacak. Vazgeçilsin mi?'))return;
+  borcKapat(null);
+}
+async function borcKaydet(b){
+  LOANS.unshift({id:Date.now(),kisi:b.kisi,tutar:b.tutar,
+    verildi:todayStr(),vade:b.vade||'',alindi:false,alindiAt:'',
+    kimden:CURRENT?CURRENT.ad:''});
+  await Store.set('loans',LOANS);
+  renderLoans();
 }
 
 /* ---------- KAYIT ONAYI ----------
@@ -863,7 +953,7 @@ const Store={
     catch(e){ storageWarn(); return false; }
   }
 };
-let NOTES=[], PAYMENTS=[];
+let NOTES=[], PAYMENTS=[], LOANS=[];
 /* Ekrana, rapora ve Excel'e YALNIZ onaylanmış kayıtlar girer.
    Onay ekranından geçen her kayıt onayli:true taşır. Bu işareti taşımayanlar
    onay ekranı gelmeden önce (2026-08-08.8 öncesi) kaydedilmiş eski
@@ -907,7 +997,7 @@ function go(id){
   if(id==='notes')renderNotes();
   if(id==='reports')report(curReport);
   if(id==='stock')renderStock();
-  if(id==='payments')renderPayments();
+  if(id==='payments'){renderPayments();renderLoans();}
   if(id==='camera')startCam(); else stopCam();
 }
 
@@ -1017,6 +1107,20 @@ async function autoSaveVoice(){
     if(!cozum.length){
       iptal('Tutar bulunamadı','Duyulan: '+escapeHtml(txt)+' — içinde rakam geçmiyor.');
       return;
+    }
+    /* Borç verme cümlesi mi? Öyleyse gider değil alacaktır; ayrı kaydedilir
+       ve tablo toplamlarına girmez. Kişi "gider" derse normal akışa döner. */
+    const loan=detectLoan(txt);
+    if(loan){
+      const kar=await borcSor(loan,txt);
+      if(!kar){ iptal('Kaydedilmedi','Metin duruyor, tekrar kaydedebilirsin.'); return; }
+      if(kar.tur==='borc'){
+        await borcKaydet(kar);
+        document.getElementById('voiceText').value='';
+        iptal('Alacak kaydedildi',escapeHtml(kar.kisi)+' · '+money(kar.tutar)
+             +(kar.vade?' · vade '+fmtDate(kar.vade):' · vade yok'));
+        return;
+      }
     }
     /* Her kalem onaydan geçer; sözlükte olup olmaması kaydı engellemez. */
     const onaylanan=await onaySor(cozum,txt);
@@ -1360,6 +1464,72 @@ const SURE_KALIBI=new RegExp(
   +'\\s*(?:'+SURE_BIRIMI+')(?!['+HARF+'])'
   +'(?:\\s*(?:sonra|önce|once|içinde|icinde|içerisinde|icerisinde|vadeli|vade))?'
   ,'gi');
+/* ---------- VERİLEN BORÇ (ALACAK) ALGILAMA ----------
+   "Mehmet'e 10 milyon verildi 15 gün sonra alınacak" gibi cümleler gider
+   değil, alacaktır: para çıkmıştır ama geri gelecektir. Bunlar tabloya gider
+   diye yazılınca hem gideri şişiriyor hem kimin ne zaman ödeyeceği hiçbir
+   yerde kalmıyordu.
+
+   İki şart birden aranıyor: verme fiili VE geri dönüş fiili. Yalnız "verildi"
+   yetmez — "işçi ödemesi verildi" bir alacak değil, gerçek giderdir. */
+const BORC_VERME=/(bor[çc]|[öo]d[üu]n[çc])\s*ver|veril(di|ecek)|verdim|verd[iı]k/i;
+const BORC_DONUS=/(geri\s*)?(al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|verecek|[öo]deyecek|[öo]deyecekler|iade)/i;
+const AY_SIRA={ocak:0,'şubat':1,subat:1,mart:2,nisan:3,'mayıs':4,mayis:4,haziran:5,
+  temmuz:6,'ağustos':7,agustos:7,'eylül':8,eylul:8,ekim:9,'kasım':10,kasim:10,'aralık':11,aralik:11};
+function isoGun(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+/* Cümledeki vadeyi tarihe çevirir. Bulamazsa boş döner — vade zorunlu değil. */
+function vadeCoz(text,bugun){
+  const t=trLower(String(text));
+  const simdi=bugun?new Date(bugun):new Date();
+  // "15 gün sonra", "üç ay sonra"
+  const sure=t.match(new RegExp('(\\d{1,3}|(?:'+SAYI_KELIMESI+')(?:\\s+(?:'+SAYI_KELIMESI+'))*)'
+    +'\\s*('+SURE_BIRIMI+')(?!['+HARF+'])\\s*(?:sonra|vadeli|vade|içinde|icinde)'));
+  if(sure){
+    const n=/^\d+$/.test(sure[1])?parseInt(sure[1],10):parseInt(wordsToNumbers(sure[1]),10);
+    if(n>0){
+      const d=new Date(simdi);
+      const b=sure[2];
+      if(b==='gün'||b==='gun')d.setDate(d.getDate()+n);
+      else if(b==='hafta')d.setDate(d.getDate()+n*7);
+      else if(b==='ay')d.setMonth(d.getMonth()+n);
+      else if(b==='saat')d.setDate(d.getDate()+Math.ceil(n/24));
+      else d.setFullYear(d.getFullYear()+n);        // yıl / sene
+      return isoGun(d);
+    }
+  }
+  // "26 Eylül'de" ve ters sırası "Ağustos 28'de" — ses tanıma ikisini de üretiyor
+  const ayli=t.match(new RegExp('(\\d{1,2})\\s*('+AY_ADLARI+')'))
+          ||(m=>m&&[m[0],m[2],m[1]])(t.match(new RegExp('('+AY_ADLARI+')\\s*(\\d{1,2})')));
+  if(ayli){
+    const gun=parseInt(ayli[1],10), ay=AY_SIRA[ayli[2]];
+    if(gun>=1&&gun<=31&&ay!==undefined){
+      let d=new Date(simdi.getFullYear(),ay,gun);
+      if(d<simdi)d=new Date(simdi.getFullYear()+1,ay,gun);   // geçmişse gelecek yıl
+      return isoGun(d);
+    }
+  }
+  // "ayın 26'sında" — bu ay, geçtiyse gelecek ay
+  const ayin=t.match(/ay[ıi]n\s*(\d{1,2})/);
+  if(ayin){
+    const gun=parseInt(ayin[1],10);
+    if(gun>=1&&gun<=31){
+      let d=new Date(simdi.getFullYear(),simdi.getMonth(),gun);
+      if(d<simdi)d=new Date(simdi.getFullYear(),simdi.getMonth()+1,gun);
+      return isoGun(d);
+    }
+  }
+  return '';
+}
+function detectLoan(text){
+  if(!BORC_VERME.test(text)||!BORC_DONUS.test(text))return null;
+  const items=parseItems(text);
+  if(!items.length)return null;
+  // Cümlede birden çok sayı varsa en büyüğü tutardır (diğerleri artık ayıklanmış olmalı).
+  const en=items.reduce((a,b)=>b.amount>a.amount?b:a);
+  if(!(en.amount>0))return null;
+  return {kisi:(en.category||en.known||'').trim(),tutar:en.amount,vade:vadeCoz(text)};
+}
+
 function parseItems(text){
   const FILLER=/(^|\s)(bugün|dün|yarın|oldu|olsun|ödendi|ödedim|aldım|verdim|geldi|gitti|tane|adet|toplam|için|tl|lira|₺)(?=\s|$)/gi;
   // Süre önce (ham metinde), sonra sayı birleştirme, sonra tarih temizliği.
@@ -1445,6 +1615,18 @@ async function saveNote(type){
   if(!txt){alert('Kaydedilecek metin yok.');return;}
   const cozum=parseItems(txt);
   if(!cozum.length){alert('Metinde tutar bulunamadı.');return;}
+  const loan=detectLoan(txt);
+  if(loan){
+    const kar=await borcSor(loan,txt);
+    if(!kar)return;
+    if(kar.tur==='borc'){
+      await borcKaydet(kar);
+      document.getElementById(el).value='';
+      alert('✅ Alacak kaydedildi:\n'+kar.kisi+' · '+money(kar.tutar)
+           +(kar.vade?'\nVade: '+fmtDate(kar.vade):'\nVade yok'));
+      return;
+    }
+  }
   const onaylanan=await onaySor(cozum,txt);
   if(!onaylanan)return;
   const items=await onaydanKalemler(onaylanan);
@@ -1768,7 +1950,7 @@ async function applyStockCommand(cmd){
 /* ---------- YEDEKLEME / GERİ YÜKLEME ---------- */
 function backupAll(){
   const data={surum:1,tarih:new Date().toISOString(),
-    notes:NOTES,payments:PAYMENTS,stock:STOCK,moves:MOVES,lexicon:LEXICON,
+    notes:NOTES,payments:PAYMENTS,loans:LOANS,stock:STOCK,moves:MOVES,lexicon:LEXICON,
     serbestYon:SERBEST_YON,settings:SETTINGS};
   saveBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),'Yedek_'+todayStr()+'.json');
   speak('Yedek alındı.','kayit');
@@ -1780,7 +1962,8 @@ async function restoreBackup(ev){
     try{
       const d=JSON.parse(r.result);
       if(!confirm('Yedek yüklenecek ve mevcut veriler değişecek.\n\nYedek tarihi: '+(d.tarih?fmt(d.tarih):'bilinmiyor')+'\nKayıt: '+((d.notes||[]).length)+' · Stok: '+((d.stock||[]).length)+'\n\nDevam edilsin mi?'))return;
-      NOTES=d.notes||[]; PAYMENTS=d.payments||[]; STOCK=d.stock||[]; MOVES=d.moves||[];
+      NOTES=d.notes||[]; PAYMENTS=d.payments||[]; LOANS=d.loans||[];
+      STOCK=d.stock||[]; MOVES=d.moves||[];
       LEXICON=d.lexicon||[]; SETTINGS=Object.assign({},SES_VARSAYILAN,d.settings||{});
       /* Serbest kategorilerin yönü de yedekten gelmeli; gelmezse eski
          yedekler yüklenince o kalemler borç tarafına düşer. */
@@ -1788,7 +1971,7 @@ async function restoreBackup(ev){
       await Store.set('notes',NOTES); await Store.set('payments',PAYMENTS);
       await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
-      await Store.set('serbestYon',SERBEST_YON);
+      await Store.set('serbestYon',SERBEST_YON); await Store.set('loans',LOANS);
       /* Ayarlar da yedekten geldi; pencere açıksa anahtarlar tazelensin. */
       renderTable(); if(ayarAcikMi())ayarCiz();
       alert('✅ Yedek geri yüklendi.');
@@ -2185,16 +2368,113 @@ function fmtDate(iso){const d=new Date(iso+'T00:00');return pad(d.getDate())+'.'
 function daysUntil(iso){const a=new Date(todayStr()+'T00:00');const b=new Date(iso+'T00:00');return Math.round((b-a)/86400000)}
 async function delPay(id){PAYMENTS=PAYMENTS.filter(p=>p.id!==id);await Store.set('payments',PAYMENTS);renderPayments();}
 
+/* ---------- VERİLEN BORÇLAR (ALACAKLAR) ----------
+   Yalnız bu cihazda tutuluyor — stok ve çekler gibi. Buluta yazılmıyor:
+   yayınlanmış veritabanı kuralları yalnız `kayitlar` düğümüne ve yalnız
+   EKLEMEYE izin veriyor; "geri alındı" işareti bir güncelleme olduğu için
+   kural değişikliği ister. */
+function payTab(hangi){
+  const al=hangi==='al';
+  document.getElementById('payOde').style.display=al?'none':'';
+  document.getElementById('payAl').style.display=al?'':'none';
+  document.getElementById('tabOde').classList.toggle('on',!al);
+  document.getElementById('tabAl').classList.toggle('on',al);
+  if(al)renderLoans(); else renderPayments();
+}
+async function addLoan(){
+  const k=document.getElementById('loanKisi').value.trim();
+  const t=toNumber(document.getElementById('loanTutar').value||'');
+  if(!k||!(t>0)){alert('Kime verildiği ve sıfırdan büyük bir tutar gerekli.');return;}
+  await borcKaydet({kisi:k,tutar:t,vade:document.getElementById('loanVade').value||''});
+  document.getElementById('loanKisi').value='';
+  document.getElementById('loanTutar').value='';
+  document.getElementById('loanVade').value='';
+  if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+}
+async function loanAlindi(id){
+  const l=LOANS.find(x=>x.id===id); if(!l)return;
+  if(!confirm('"'+l.kisi+' · '+money(l.tutar)+'" geri alındı olarak işaretlensin mi?'))return;
+  l.alindi=true; l.alindiAt=todayStr();
+  await Store.set('loans',LOANS); renderLoans();
+}
+async function loanGeriAl(id){
+  const l=LOANS.find(x=>x.id===id); if(!l)return;
+  l.alindi=false; l.alindiAt='';
+  await Store.set('loans',LOANS); renderLoans();
+}
+async function loanSil(id){
+  const l=LOANS.find(x=>x.id===id); if(!l)return;
+  if(!confirm('"'+l.kisi+' · '+money(l.tutar)+'" kaydı silinsin mi?'))return;
+  LOANS=LOANS.filter(x=>x.id!==id);
+  await Store.set('loans',LOANS); renderLoans();
+}
+function renderLoans(){
+  const box=document.getElementById('loanList');
+  if(!box)return;
+  if(!LOANS.length){box.innerHTML='<div class="empty">Verilen borç kaydı yok.<br>Sesli girebilir ya da yukarıdaki formu kullanabilirsin.</div>';return;}
+  const acik=LOANS.filter(l=>!l.alindi), kapali=LOANS.filter(l=>l.alindi);
+  const topla=a=>a.reduce((x,y)=>x+(y.tutar||0),0);
+  /* Vadesi geçenler ayrı sayılıyor: asıl takip edilmesi gereken onlar. */
+  const gecmis=acik.filter(l=>l.vade&&daysUntil(l.vade)<0);
+  let html='<div class="card" style="border-top:3px solid var(--ok)">'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline">'
+    +'<div><div style="font-weight:700;color:var(--ok)">DIŞARIDA</div>'
+    +'<div class="muted" style="font-size:12px">geri alınacak · '+acik.length+' kişi</div></div>'
+    +'<div style="font-weight:700;font-size:17px;white-space:nowrap;color:var(--ok)">'+money(topla(acik))+'</div></div>'
+    +(gecmis.length?'<div class="muted" style="margin-top:8px;color:var(--danger)">'
+       +gecmis.length+' kaydın vadesi geçmiş · '+money(topla(gecmis))+'</div>':'')
+    +'</div>';
+
+  const satir=l=>{
+    const g=l.vade?daysUntil(l.vade):null;
+    const gecti=g!==null&&g<0;
+    const vadeYazi=!l.vade?'vade yok'
+      :fmtDate(l.vade)+' · '+(gecti?Math.abs(g)+' gün geçti':g===0?'bugün':g===1?'yarın':g+' gün');
+    return '<div style="padding:11px 0;border-top:1px solid var(--line)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escapeHtml(l.kisi)+'</div>'
+      +'<div class="muted" style="font-size:12px'+(gecti?';color:var(--danger)':'')+'">'+vadeYazi+'</div>'
+      +'<div class="muted" style="font-size:11px">verildi '+fmtDate(l.verildi)
+        +(l.alindi&&l.alindiAt?' · alındı '+fmtDate(l.alindiAt):'')+'</div></div>'
+      +'<div style="font-weight:700;white-space:nowrap">'+money(l.tutar)+'</div></div>'
+      +'<div class="row" style="margin-top:8px">'
+      +(l.alindi
+         ? '<button class="btn sm ghost" onclick="loanGeriAl('+l.id+')">Geri al (alınmadı)</button>'
+         : '<button class="btn sm" onclick="loanAlindi('+l.id+')">Geri alındı</button>')
+      +'<button class="btn sm ghost" onclick="loanSil('+l.id+')">Sil</button>'
+      +'</div></div>';
+  };
+  const sirala=a=>a.slice().sort((x,y)=>(x.vade||'9999').localeCompare(y.vade||'9999'));
+  if(acik.length)
+    html+='<div class="card"><div style="font-weight:600;margin-bottom:2px">Bekleyen</div>'
+        +sirala(acik).map(satir).join('')+'</div>';
+  if(kapali.length)
+    html+='<div class="card"><div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:2px">'
+        +'<span>Geri alınanlar</span><span class="muted">'+money(topla(kapali))+'</span></div>'
+        +sirala(kapali).map(satir).join('')+'</div>';
+  box.innerHTML=html;
+}
+
 /* ---------- HATIRLATMA (1 gün önce) ---------- */
 function checkReminders(){
   const due=PAYMENTS.filter(p=>daysUntil(p.dueDate)===1);
+  /* Alacaklarda yarın uyarmak yetmiyor: vadesi geçmiş bir alacak kendini
+     hatırlatmazsa unutulup gidiyor. Yarın olanlar ve geçmiş olanlar birlikte
+     gösteriliyor. */
+  const alYarin=LOANS.filter(l=>!l.alindi&&l.vade&&daysUntil(l.vade)===1);
+  const alGecmis=LOANS.filter(l=>!l.alindi&&l.vade&&daysUntil(l.vade)<0);
   const box=document.getElementById('reminderBox');
-  if(due.length){
-    box.innerHTML=due.map(p=>`<div class="banner">🔔 <b>Yarın çek ödemesi var:</b> ${escapeHtml(p.title)}${p.amount?' — '+escapeHtml(p.amount):''}</div>`).join('');
-    if('Notification'in window&&Notification.permission==='granted'){
-      due.forEach(p=>{try{new Notification('Çek ödemesi hatırlatması',{body:'Yarın: '+p.title+(p.amount?' — '+p.amount:'')});}catch(e){}});
-    }
-  }else box.innerHTML='';
+  let html=due.map(p=>`<div class="banner">🔔 <b>Yarın çek ödemesi var:</b> ${escapeHtml(p.title)}${p.amount?' — '+escapeHtml(p.amount):''}</div>`).join('');
+  html+=alYarin.map(l=>`<div class="banner">🔔 <b>Yarın tahsil edilecek:</b> ${escapeHtml(l.kisi)} — ${money(l.tutar)}</div>`).join('');
+  if(alGecmis.length){
+    const t=alGecmis.reduce((x,y)=>x+(y.tutar||0),0);
+    html+=`<div class="banner">⚠️ <b>Vadesi geçmiş ${alGecmis.length} alacak:</b> ${money(t)} — ${escapeHtml(alGecmis.map(l=>l.kisi).slice(0,3).join(', '))}${alGecmis.length>3?'…':''}</div>`;
+  }
+  box.innerHTML=html;
+  if('Notification'in window&&Notification.permission==='granted'){
+    due.forEach(p=>{try{new Notification('Çek ödemesi hatırlatması',{body:'Yarın: '+p.title+(p.amount?' — '+p.amount:'')});}catch(e){}});
+    alYarin.forEach(l=>{try{new Notification('Tahsilat hatırlatması',{body:'Yarın: '+l.kisi+' — '+money(l.tutar)});}catch(e){}});
+  }
 }
 
 /* ---------- otomatik güncelleme + çevrimdışı ----------
@@ -2202,7 +2482,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-09.3";
+const APP_VERSION="2026-08-09.4";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

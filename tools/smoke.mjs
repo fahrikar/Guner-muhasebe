@@ -257,6 +257,67 @@ try{
   check("rakamsız cümlede onay penceresi açılmıyor",!(await page.isVisible("#onayKat")));
   check("rakamsız cümle kaydedilmiyor",await page.evaluate(n=>NOTES.length===n,oncekiN2));
 
+  /* --- verilen borç (alacak) takibi ---
+     "verildi ... alınacak" gibi cümleler gider değil alacaktır: ayrı
+     kaydedilir, tablo toplamlarına girmez, vadesi takip edilir. */
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{
+    document.getElementById('voiceText').value="Mehmet'e 10 milyon verildi 15 gün sonra alınacak";
+    saveNote('voice');
+  });
+  await page.waitForSelector("#borcKat",{state:"visible",timeout:5000});
+  check("borç verme cümlesi algılanıyor",await page.isVisible("#borcKat"));
+  const borcOn=await page.evaluate(()=>({
+    kisi:document.getElementById('borcKisi').value,
+    tutar:document.getElementById('borcTutar').value,
+    vade:document.getElementById('borcVade').value}));
+  check("kişi, tutar ve vade önceden dolduruluyor",
+    borcOn.kisi.includes("Mehmet")&&borcOn.tutar==="10000000"&&/^\d{4}-\d{2}-\d{2}$/.test(borcOn.vade),
+    JSON.stringify(borcOn));
+  const notOnce=await page.evaluate(()=>NOTES.length);
+  await page.evaluate(()=>borcOnayla());
+  await page.waitForTimeout(300);
+  check("alacak kaydedildi",await page.evaluate(()=>LOANS.length===1&&LOANS[0].tutar===10000000));
+  check("alacak tablo kaydı oluşturmuyor",await page.evaluate(n=>NOTES.length===n,notOnce));
+  await page.evaluate(()=>{go('notes');renderTable();});
+  await page.waitForTimeout(200);
+  check("alacak borç toplamına girmiyor",
+    !(await page.textContent("#tableBox")).includes("10.000.000"));
+
+  await page.evaluate(()=>{go('payments');payTab('al');});
+  await page.waitForTimeout(250);
+  const alEkran=await page.textContent("#loanList");
+  check("alacak ekranında kişi ve tutar var",
+    alEkran.includes("Mehmet")&&alEkran.includes("10.000.000"),alEkran.slice(0,140));
+  check("dışarıdaki toplam gösteriliyor",alEkran.includes("DIŞARIDA"));
+  await page.evaluate(()=>loanAlindi(LOANS[0].id));
+  await page.waitForTimeout(250);
+  check("geri alındı işaretlenebiliyor",await page.evaluate(()=>LOANS[0].alindi===true));
+  check("geri alınan bekleyenden çıkıyor",
+    (await page.textContent("#loanList")).includes("Geri alınanlar"));
+
+  /* Gider olduğunu söyleyince normal akışa dönmeli. */
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{
+    document.getElementById('voiceText').value="Ali'ye 3 bin verildi 5 gün sonra alınacak";
+    saveNote('voice');
+  });
+  await page.waitForSelector("#borcKat",{state:"visible",timeout:5000});
+  await page.evaluate(()=>borcDegil());
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  check("gider denince normal onay ekranına dönüyor",await page.isVisible("#onayKat"));
+  await page.evaluate(()=>onayla());
+  await page.waitForTimeout(250);
+  check("gider olarak kaydedilince alacak oluşmuyor",
+    await page.evaluate(()=>LOANS.length===1));
+
+  /* Sıradan gider cümlesi borç penceresini açmamalı. */
+  await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
+  await page.waitForTimeout(400);
+  check("sıradan gider borç sanılmıyor",!(await page.isVisible("#borcKat")));
+  await onayVer();
+  await page.waitForTimeout(200);
+
   /* --- yalnız onaylı kayıtlar ekrana düşer ---
      Onay ekranından geçmemiş bir kayıt (eski sürümden kalan ya da elle
      eklenen) tabloya, rapora ve Excel'e girmemeli. */

@@ -209,7 +209,40 @@ else ok("dış script'lerin hepsi defer");
   }
 }
 
-/* 11 — belge muafiyeti doğru kişilere bakıyor mu?
+/* 11 — verilen borç algılaması.
+   İki şart birden aranıyor: verme fiili VE geri dönüş fiili. Yalnız
+   "verildi"ye bakılsaydı "işçi ödemesi verildi" de alacak sanılır, gerçek
+   gider tablodan düşerdi. Aşağıdaki olumsuz durumlar o çizgiyi tutuyor. */
+{
+  const bas=html.indexOf("const NUMW="), son=html.indexOf("function money(n)");
+  if(bas<0||son<0)bad("borç algılayıcı bulunamadı (test güncellenmeli).");
+  else try{
+    const api=new Function("const pad=n=>String(n).padStart(2,'0');"+html.slice(bas,son)
+      +"\nreturn {detectLoan,vadeCoz};")();
+    const G="2026-08-09T12:00:00";
+    const borclar=[
+      ["Mehmet güner'e 10 milyon verildi 15 gün sonra alınacak",10000000,"2026-08-24"],
+      ["Mehmet'e 16 milyon verildi 26 Eylül'de geri alınacak",   16000000,"2026-09-26"],
+      ["Hamdiye'ye 26 milyon verildi Ağustos 28'de tekrar ödeyecek",26000000,"2026-08-28"],
+      ["Ali'ye 5 bin borç verdim ayın 26sında ödeyecek",             5000,"2026-08-26"],
+      ["Veli'ye 2 milyon ödünç verildi üç ay sonra geri alacağım",2000000,"2026-11-09"],
+    ];
+    const giderler=["işçi ödemesi 12 bin verildi","yakıt 900","fabrika gideri 5000 ödendi",
+                    "emanet beş bin","boya 2000 3 ay sonra ödenecek"];
+    const kotu=[];
+    borclar.forEach(([c,tutar,vade])=>{
+      const r=api.detectLoan(c);
+      if(!r)kotu.push(`"${c}" borç olarak algılanmadı`);
+      else if(r.tutar!==tutar)kotu.push(`"${c}" tutarı ${r.tutar}, beklenen ${tutar}`);
+      else if(api.vadeCoz(c,G)!==vade)kotu.push(`"${c}" vadesi ${api.vadeCoz(c,G)||"boş"}, beklenen ${vade}`);
+    });
+    giderler.forEach(c=>{ if(api.detectLoan(c))kotu.push(`"${c}" borç sanıldı — gerçek gider tablodan düşer`); });
+    if(kotu.length)kotu.forEach(m=>bad("borç algılama: "+m));
+    else ok(`verilen borç algılaması (${borclar.length} borç, ${giderler.length} gider)`);
+  }catch(e){ bad(`borç algılayıcı çalıştırılamadı: ${e.message}`); }
+}
+
+/* 12 — belge muafiyeti doğru kişilere bakıyor mu?
    Muafiyet 'patron' ve 'm4' diye kişi kimliğiyle yazılı. Rol listesindeki
    sıra değişir de Ömer başka bir mudurId alırsa muafiyet sessizce yanlış
    kişiye geçer — kimse fark etmez. Burası o bağı tutuyor. */
