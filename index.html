@@ -864,6 +864,14 @@ const Store={
   }
 };
 let NOTES=[], PAYMENTS=[];
+/* Ekrana, rapora ve Excel'e YALNIZ onaylanmış kayıtlar girer.
+   Onay ekranından geçen her kayıt onayli:true taşır. Bu işareti taşımayanlar
+   onay ekranı gelmeden önce (2026-08-08.8 öncesi) kaydedilmiş eski
+   kayıtlardır; yanlış duyulmuş cümleler de aralarında olabilir. Silinmiyorlar
+   — veride ve yedekte duruyorlar — ama hiçbir toplama girmiyorlar. Kaç tane
+   kaldıkları ayarlar penceresinde yazıyor, oradan topluca silinebilirler. */
+function onayliNotes(){ return NOTES.filter(n=>n&&n.onayli===true); }
+function onaysizNotes(){ return NOTES.filter(n=>n&&n.onayli!==true); }
 
 /* Ekranın üstünde kalıcı uyarı şeridi (alert gibi akışı kesmez). */
 function banner(text){
@@ -1030,7 +1038,9 @@ async function autoSaveVoice(){
     }
     const noteId=Date.now();
     const anomali=checkAnomalies(items,noteId);
-    const yeni={id:noteId,type:'voice',text:txt,items,createdAt:new Date().toISOString()};
+    /* onayli: bu kayıt onay ekranından geçti. İşareti olmayan hiçbir şey
+       tabloya, rapora ya da Excel'e girmiyor. */
+    const yeni={id:noteId,type:'voice',text:txt,items,onayli:true,createdAt:new Date().toISOString()};
     if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
     NOTES.unshift(yeni);
     await Store.set('notes',NOTES);
@@ -1424,7 +1434,7 @@ async function saveNote(type){
     belge=await belgeSor(items);
     if(!belge){alert('Gider girişi için belge gerekiyor. Kaydedilmedi.');return;}
   }
-  const yeni={id:Date.now(),type,text:txt,items,createdAt:new Date().toISOString()};
+  const yeni={id:Date.now(),type,text:txt,items,onayli:true,createdAt:new Date().toISOString()};
   if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
   NOTES.unshift(yeni);
   await Store.set('notes',NOTES);
@@ -1437,7 +1447,7 @@ function renderTable(){
   const box=document.getElementById('tableBox');
   if(!box)return;
   const rows=[];
-  NOTES.forEach(n=>(n.items||[]).forEach((it,idx)=>rows.push({noteId:n.id,idx,
+  onayliNotes().forEach(n=>(n.items||[]).forEach((it,idx)=>rows.push({noteId:n.id,idx,
     tarih:fmt(n.createdAt),kategori:it.known||it.category,grup:it.grup||'—',
     tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
     belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():'',
@@ -1515,6 +1525,18 @@ function ayarAc(){
   document.getElementById('ayarKat').style.display='flex';
 }
 function ayarKapat(){ document.getElementById('ayarKat').style.display='none'; }
+/* Onaysız eski kayıtları topluca siler. Geri alınamaz, o yüzden sayı
+   gösterilerek onay isteniyor. */
+async function onaysizSil(){
+  const n=onaysizNotes().length;
+  if(!n)return;
+  if(!confirm(n+' onaylanmamış eski kayıt kalıcı olarak silinecek.\n\n'
+             +'Zaten hiçbir toplama girmiyorlar. Devam edilsin mi?'))return;
+  NOTES=onayliNotes();
+  await Store.set('notes',NOTES);
+  ayarCiz(); renderTable();
+  alert('✅ '+n+' kayıt silindi.');
+}
 /* Pencerenin dışına dokununca kapansın; içine dokunmak kapatmasın. */
 function ayarKatTikla(e){ if(e.target&&e.target.id==='ayarKat')ayarKapat(); }
 function ayarAcikMi(){
@@ -1557,6 +1579,16 @@ function ayarCiz(){
      +'<div class="status" id="pinStatus"></div>'
      +'<button class="btn" style="margin-top:10px" onclick="changePin()">PIN\'i kaydet</button>'
      +'</div></div>'
+     /* Onaysız eski kayıtlar hiçbir toplama girmiyor ama sessizce yok
+        sayılmaları da doğru değil: kaç tane oldukları burada yazıyor ve
+        istenirse topluca siliniyor. */
+     +(onaysizNotes().length
+        ? '<div class="card"><div style="font-weight:500;margin-bottom:4px">Onaylanmamış eski kayıtlar</div>'
+          +'<div class="muted" style="margin-bottom:10px">'+onaysizNotes().length
+          +' kayıt onay ekranı gelmeden önce girilmiş. Tabloya, rapora ve '
+          +'Excel\'e alınmıyorlar. Yanlış duyulmuş cümleler de aralarında olabilir.</div>'
+          +'<button class="btn sm ghost" onclick="onaysizSil()">Hepsini sil</button></div>'
+        : '')
      +'<div class="card"><div style="font-weight:500;margin-bottom:4px">Yedekleme</div>'
      +'<div class="muted" style="margin-bottom:10px">Veriler telefonda saklanıyor. Düzenli yedek al.</div>'
      +'<div class="row"><button class="btn sm ghost" onclick="logout()">Çıkış Yap</button>'
@@ -1580,7 +1612,7 @@ async function delRow(noteId,idx){
 }
 
 function exportTableCSV(){
-  const its=allItems(NOTES);
+  const its=allItems(onayliNotes());
   if(!its.length){alert('Tanımlı kalem yok.');return;}
   const y=yonAyir(its);
   const rows=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
@@ -1591,7 +1623,7 @@ function exportTableCSV(){
   exportCSV(rows,'Tablo_'+todayStr()+'.csv');
 }
 function exportTable(){
-  const its=allItems(NOTES);
+  const its=allItems(onayliNotes());
   if(!its.length){alert('Tanımlı kalem yok.');return;}
   if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
@@ -1750,7 +1782,7 @@ async function restoreBackup(ev){
 /* ---------- ANOMALİ (OLAĞANDIŞI TUTAR) UYARISI ---------- */
 function categoryStats(kategori,haricNoteId){
   const vals=[];
-  NOTES.forEach(n=>{ if(n.id===haricNoteId)return;
+  onayliNotes().forEach(n=>{ if(n.id===haricNoteId)return;
     (n.items||[]).forEach(it=>{ if(it.known===kategori)vals.push(it.amount); }); });
   if(vals.length<3)return null;
   const ort=vals.reduce((a,b)=>a+b,0)/vals.length;
@@ -1780,7 +1812,7 @@ function report(kind){
   const now=new Date(); let from;
   if(kind==='week'){from=new Date(now);from.setDate(now.getDate()-7);}
   else{from=new Date(now.getFullYear(),now.getMonth(),1);}
-  const list=NOTES.filter(n=>new Date(n.createdAt)>=from);
+  const list=onayliNotes().filter(n=>new Date(n.createdAt)>=from);
   const box=document.getElementById('reportBox');
   const its=allItems(list);
   const y=yonAyir(its);
@@ -1985,16 +2017,16 @@ function exportFullTemplate(){
   if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
   const now=new Date();
-  const its=allItems(NOTES), groups=groupItems(its);
-  const week=NOTES.filter(n=>new Date(n.createdAt)>=new Date(Date.now()-7*864e5));
-  const month=NOTES.filter(n=>new Date(n.createdAt)>=new Date(now.getFullYear(),now.getMonth(),1));
+  const its=allItems(onayliNotes()), groups=groupItems(its);
+  const week=onayliNotes().filter(n=>new Date(n.createdAt)>=new Date(Date.now()-7*864e5));
+  const month=onayliNotes().filter(n=>new Date(n.createdAt)>=new Date(now.getFullYear(),now.getMonth(),1));
   const wIts=allItems(week), mIts=allItems(month);
 
   /* 1) KAPAK / ÖZET */
   const kapak=[
     {Alan:'Rapor Adı',Değer:'İşletme Takip Şablonu'},
     {Alan:'Oluşturma Tarihi',Değer:fmt(now.toISOString())},
-    {Alan:'Toplam Kayıt',Değer:NOTES.length},
+    {Alan:'Toplam Kayıt',Değer:onayliNotes().length},
     {Alan:'Tanımlı Kalem',Değer:its.length},
     {Alan:'Haftalık Net (₺)',Değer:yonAyir(wIts).net},
     {Alan:'Aylık Net (₺)',Değer:yonAyir(mIts).net},
@@ -2064,7 +2096,7 @@ function exportFullTemplate(){
   /* 10) TANIMLANAMAYAN — yalnız onay ekranından önce kaydedilmiş eski
      kalemler için. Yeni kayıtların hepsi adıyla girdiği için bu sayfa
      normalde boş kalır; hiç yoksa eklenmiyor ki boşuna sayfa açılmasın. */
-  const unk=unknownItems(NOTES).map(u=>({Tarih:fmt(u.createdAt),'Algılanan Metin':u.category,'Tutar':u.amount,Not:'Eski kayıt - kategorisi yok, toplamlara dahil edilmedi'}));
+  const unk=unknownItems(onayliNotes()).map(u=>({Tarih:fmt(u.createdAt),'Algılanan Metin':u.category,'Tutar':u.amount,Not:'Eski kayıt - kategorisi yok, toplamlara dahil edilmedi'}));
   if(unk.length)
     XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(unk),[18,30,14,46]),'Tanımlanamayan');
 
@@ -2151,7 +2183,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-09.1";
+const APP_VERSION="2026-08-09.2";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

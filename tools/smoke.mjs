@@ -257,6 +257,35 @@ try{
   check("rakamsız cümlede onay penceresi açılmıyor",!(await page.isVisible("#onayKat")));
   check("rakamsız cümle kaydedilmiyor",await page.evaluate(n=>NOTES.length===n,oncekiN2));
 
+  /* --- yalnız onaylı kayıtlar ekrana düşer ---
+     Onay ekranından geçmemiş bir kayıt (eski sürümden kalan ya da elle
+     eklenen) tabloya, rapora ve Excel'e girmemeli. */
+  await page.evaluate(async()=>{
+    NOTES.unshift({id:1,type:'voice',text:'onaysiz deneme 777',
+      items:[{category:'Onaysızkalem',amount:777,known:'Onaysızkalem',grup:'Serbest'}],
+      createdAt:new Date().toISOString()});   // onayli işareti YOK
+    await Store.set('notes',NOTES);
+    go('notes');renderTable();
+  });
+  await page.waitForTimeout(200);
+  const onaysizTablo=await page.textContent("#tableBox");
+  check("onaysız kayıt tabloya düşmüyor",
+    !onaysizTablo.includes("Onaysızkalem")&&!onaysizTablo.includes("777"),onaysizTablo.slice(0,160));
+  check("onaysız kayıt toplamlara girmiyor",
+    await page.evaluate(()=>!allItems(onayliNotes()).some(i=>i.amount===777)));
+  check("onaysız kayıt veride duruyor, silinmedi",
+    await page.evaluate(()=>NOTES.some(n=>n.id===1)));
+  await page.evaluate(()=>{ayarAc();});
+  await page.waitForTimeout(200);
+  check("ayarlarda onaysız kayıt sayısı yazıyor",
+    (await page.textContent("#ayarIcerik")).includes("Onaylanmamış eski kayıtlar"));
+  await page.evaluate(()=>onaysizSil());
+  await page.waitForTimeout(300);
+  check("onaysız kayıtlar topluca silinebiliyor",
+    await page.evaluate(()=>!NOTES.some(n=>n.id===1)));
+  await page.evaluate(()=>ayarKapat());
+  await page.waitForTimeout(150);
+
   /* Rapor kategori toplamlarını gösterir; ham konuşma metinleri artık
      listelenmiyor (sayfayı dolduruyordu). */
   await page.evaluate(()=>{go('reports');report('month');});
