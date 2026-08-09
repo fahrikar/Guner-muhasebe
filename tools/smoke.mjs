@@ -60,14 +60,17 @@ page.on("dialog",async d=>{ lastDialog=d.message(); await d.accept(); });
 /* Gerçek PIN'ler repoda yok (özet olarak duruyorlar) ve testte de olmamalı.
    Sayfanın kendi pinHash'i ile testlik bir ROLES tablosu kuruyoruz; her
    yeniden yüklemeden sonra tekrarlanmalı. */
-const TEST_PATRON="11111111", TEST_MUDUR="22222222";
+const TEST_PATRON="11111111", TEST_MUDUR="22222222", TEST_MUDUR2="44444444";
 async function setupPins(temizle){
-  await page.evaluate(async([p,m,t])=>{
+  await page.evaluate(async([p,m,m2,t])=>{
+    /* İki müdür: şantiye/fabrika ekranı birden çok yere atama yapılabildiğini
+       ancak iki müdürle gösterebiliyor. */
     BASE_ROLES=[{rol:'patron',ad:'Test Patron',mudurId:'p0',hash:await pinHash(p)},
-                {rol:'mudur', ad:'Test Müdür',mudurId:'m1',hash:await pinHash(m)}];
+                {rol:'mudur', ad:'Test Müdür',mudurId:'m1',hash:await pinHash(m)},
+                {rol:'mudur', ad:'Test Müdür 2',mudurId:'m2',hash:await pinHash(m2)}];
     if(t){PIN_OVERRIDES={};await Store.set('pins',{});}
     applyPinOverrides();
-  },[TEST_PATRON,TEST_MUDUR,!!temizle]);
+  },[TEST_PATRON,TEST_MUDUR,TEST_MUDUR2,!!temizle]);
 }
 /* Her kayıt artık onay penceresinden geçiyor. Kaydetme çağrıları
    BEKLENMEDEN yapılmalı (pencere açıkken söz veren promise askıda kalır),
@@ -119,9 +122,12 @@ try{
   check("müdüre patron sekmeleri gizli",!(await page.isVisible("#nStock")));
   await page.evaluate(()=>go('stock'));
   check("müdür doğrudan çağrıyla da stok göremiyor",!(await page.isVisible("#stock")));
-  check("müdüre şantiye sekmesi gizli",!(await page.isVisible("#nSites")));
+  check("müdüre şantiye ve fabrika sekmeleri gizli",
+    !(await page.isVisible("#nSites"))&&!(await page.isVisible("#nFactory")));
   await page.evaluate(()=>go('sites'));
   check("müdür doğrudan çağrıyla da şantiye göremiyor",!(await page.isVisible("#sites")));
+  await page.evaluate(()=>go('factory'));
+  check("müdür doğrudan çağrıyla da fabrika göremiyor",!(await page.isVisible("#factory")));
   await page.evaluate(()=>logout());
   await page.waitForTimeout(200);
 
@@ -379,42 +385,55 @@ try{
      Şantiye kaydın üzerine yazılmıyor, müdür–şantiye eşleşmesinden okunuyor:
      müdür başka şantiyeye atanınca ya da ad değişince geçmiş kendiliğinden
      düzelmeli. */
-  check("patrona şantiye sekmesi açık",await page.isVisible("#nSites"));
+  check("patrona şantiye ve fabrika sekmeleri açık",
+    (await page.isVisible("#nSites"))&&await page.isVisible("#nFactory"));
+  const patronKayitSayisi=await page.evaluate(()=>onayliNotes().length);
   await page.evaluate(async()=>{
-    SANTIYELER=[{id:101,ad:'Bahçelievler',mudurIds:['m1']},
-                {id:102,ad:'Sahil Sitesi',mudurIds:['m2']}];
+    SANTIYELER=[{id:101,ad:'Malatya',mudurIds:['m2']},
+                {id:102,ad:'Bahçelievler',mudurIds:[]},
+                {id:1,ad:'Fabrika',tur:'fabrika',mudurIds:['m1']}];
     await Store.set('santiyeler',SANTIYELER);
-    // m1'e gider, m2'ye gelir yazan iki müdür kaydı
     NOTES.unshift({id:9001,type:'voice',text:'yakıt 1000',onayli:true,
-      mudur:'Ahmet 1',mudurId:'m1',createdAt:new Date().toISOString(),
+      mudur:'Test Müdür',mudurId:'m1',createdAt:new Date().toISOString(),
       items:[{category:'yakıt',amount:1000,known:'Yakıt',grup:'Gider'}]});
     NOTES.unshift({id:9002,type:'voice',text:'tahsilat 4000',onayli:true,
-      mudur:'Hamdi 2',mudurId:'m2',createdAt:new Date().toISOString(),
+      mudur:'Test Müdür 2',mudurId:'m2',createdAt:new Date().toISOString(),
       items:[{category:'tahsilat',amount:4000,known:'Tahsilat',grup:'Gelir'}]});
     await Store.set('notes',NOTES);
     go('sites');
   });
   await page.waitForTimeout(300);
   const san=await page.textContent("#siteDurum");
-  check("şantiyeler kendi adlarıyla listeleniyor",
-    san.includes("Bahçelievler")&&san.includes("Sahil Sitesi"),san.slice(0,160));
-  check("müdürün gideri kendi şantiyesine sayılıyor",
-    await page.evaluate(()=>santiyeAdi('m1')==='Bahçelievler'));
-  check("şantiye kartında gelir ve gider ayrı",
-    san.includes("Gelir")&&san.includes("Gider")&&san.includes("1.000")&&san.includes("4.000"),
-    san.slice(0,240));
-  check("şantiyesi olmayan müdür ayrı toplanıyor",
-    await page.evaluate(()=>santiyeAdi('m5')===''));
-  /* Müdür başka şantiyeye atanınca geçmiş de oraya geçmeli. */
-  await page.evaluate(()=>mudurAta('m1',102));
+  check("şantiye adı ve müdürü kartta yazıyor",
+    san.includes("Malatya")&&san.includes("Test Müdür 2"),san.slice(0,200));
+  check("müdürün girişleri tek tek listeleniyor",
+    san.includes("Tahsilat")&&san.includes("4.000"),san.slice(0,260));
+  check("fabrika şantiye listesinde görünmüyor",!san.includes("Fabrika"),san.slice(0,200));
+  /* Patronun kendi kayıtları bu ekrana işlenmemeli — asıl istenen buydu. */
+  check("patron kayıtları şantiye ekranına girmiyor",
+    patronKayitSayisi>0&&!san.includes("Şantiyesiz"),
+    "patron kaydı: "+patronKayitSayisi);
+  check("müdürsüz şantiye uyarı veriyor",san.includes("Bahçelievler")&&san.includes("müdür atanmamış"));
+
+  await page.evaluate(()=>go('factory'));
   await page.waitForTimeout(250);
-  check("müdür taşınınca geçmişi de yeni şantiyeye geçiyor",
-    await page.evaluate(()=>santiyeAdi('m1')==='Sahil Sitesi'));
-  check("bir müdür aynı anda tek şantiyede",
-    await page.evaluate(()=>SANTIYELER.filter(s=>s.mudurIds.includes('m1')).length===1));
+  const fab=await page.textContent("#factoryBox");
+  check("fabrika kendi ekranında müdürüyle görünüyor",
+    fab.includes("Fabrika")&&fab.includes("Test Müdür"),fab.slice(0,200));
+  check("fabrika girişleri listeleniyor",fab.includes("Yakıt")&&fab.includes("1.000"),fab.slice(0,240));
+  check("şantiye kaydı fabrikaya karışmıyor",!fab.includes("Tahsilat"),fab.slice(0,240));
+
+  /* Müdür başka yere atanınca geçmiş de oraya geçmeli. */
+  await page.evaluate(()=>mudurAta('m1',101));
+  await page.waitForTimeout(250);
+  check("müdür taşınınca geçmişi de yeni yere geçiyor",
+    await page.evaluate(()=>santiyeAdi('m1')==='Malatya'));
+  check("bir müdür aynı anda tek yerde",
+    await page.evaluate(()=>SANTIYELER.filter(s=>(s.mudurIds||[]).includes('m1')).length===1));
   await page.evaluate(async()=>{
     NOTES=NOTES.filter(n=>n.id!==9001&&n.id!==9002);
-    SANTIYELER=[]; await Store.set('notes',NOTES); await Store.set('santiyeler',SANTIYELER);
+    SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]}];
+    await Store.set('notes',NOTES); await Store.set('santiyeler',SANTIYELER);
     go('notes');renderTable();
   });
   await page.waitForTimeout(200);
