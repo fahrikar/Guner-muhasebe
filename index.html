@@ -39,7 +39,7 @@
   body,.hero,.disc,.discwrap,.waves,nav,header,.tab,.btn{
     -webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;
     -webkit-touch-callout:none;touch-action:manipulation}
-  input,textarea,.note-txt,table{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+  input,textarea,table{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
   html,body{margin:0;height:100%}
   body{
     background:linear-gradient(180deg, var(--bg2) 0%, var(--bg) 40%);
@@ -138,11 +138,8 @@
   @keyframes pulse{50%{opacity:.3}}
   .pill{display:inline-block;font-size:11px;padding:3px 11px;border-radius:20px;background:#f2ebdd;
     border:1px solid var(--line);color:var(--sub);margin-right:6px}
-  .pill.voice{color:#6a635a;background:#efe8db;border-color:#e3d9c8}
-  .pill.ocr{color:#6a635a;background:#efe8db;border-color:#e3d9c8}
   .banner{background:#f8efd9;border:1px solid #e7cf95;color:#7a5711;border-radius:16px;
     padding:14px 16px;margin-bottom:14px;font-size:14px;box-shadow:var(--sh-sm)}
-  .note-txt{white-space:pre-wrap;font-size:15px;line-height:1.5;margin:8px 0 0;color:var(--ink)}
   .check{width:20px;height:20px;accent-color:#3a3a3c}
   .empty{text-align:center;color:var(--sub);padding:46px 10px}
   .status{font-size:13px;color:var(--sub);min-height:18px;margin-top:10px;text-align:center}
@@ -1819,8 +1816,11 @@ function report(kind){
                  +grupKart('ALACAK · giren',y.alacak,y.tAlacak,'var(--ok)');
   const unk=unknownItems(list);
   const unkHtml=unk.length?`<div class="banner">${unk.length} kalem tanımlanamadı ve rapora/Excel'e alınmadı: ${unk.slice(0,6).map(u=>escapeHtml(u.category)).join(', ')}${unk.length>6?'…':''}</div>`:'';
-  const items=list.length?list.map(n=>`<div class="card"><span class="pill ${n.type}">${n.type==='voice'?'Ses':'Görsel'}</span><span class="pill">${fmt(n.createdAt)}</span><p class="note-txt">${escapeHtml(n.text)}</p></div>`).join(''):'<div class="empty">Bu dönemde kayıt yok.</div>';
-  box.innerHTML=head+unkHtml+groupHtml+items;
+  /* Ham konuşma metinlerinin listesi kaldırıldı: rapor kategori toplamları
+     için var, her kaydın söylenmiş hâlini alt alta dizmek sayfayı
+     dolduruyordu. Metinler kayıtlarda duruyor ve Word/PDF dökümüne giriyor. */
+  const bos=list.length?'':'<div class="empty">Bu dönemde kayıt yok.</div>';
+  box.innerHTML=head+unkHtml+groupHtml+bos;
   window._reportList=list;
 }
 function exportReport(t){
@@ -2151,7 +2151,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-08.11";
+const APP_VERSION="2026-08-09.1";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

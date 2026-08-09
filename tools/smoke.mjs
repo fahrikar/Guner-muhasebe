@@ -257,6 +257,16 @@ try{
   check("rakamsız cümlede onay penceresi açılmıyor",!(await page.isVisible("#onayKat")));
   check("rakamsız cümle kaydedilmiyor",await page.evaluate(n=>NOTES.length===n,oncekiN2));
 
+  /* Rapor kategori toplamlarını gösterir; ham konuşma metinleri artık
+     listelenmiyor (sayfayı dolduruyordu). */
+  await page.evaluate(()=>{go('reports');report('month');});
+  await page.waitForTimeout(300);
+  const rapor=await page.textContent("#reportBox");
+  check("raporda kategori toplamları var",
+    rapor.includes("BORÇ")&&rapor.includes("Yakıt"),rapor.slice(0,140));
+  check("raporda ham konuşma metni listelenmiyor",
+    !rapor.includes("zımbırtı 4321")&&!rapor.includes("hurda satışı 3000"),rapor.slice(0,200));
+
   check("patrona belge sorulmuyor",
     !(await page.isVisible("#belgeKat")),"belge penceresi patrona açıldı");
 
