@@ -324,6 +324,29 @@ try{
   check("alacak ekranında kişi ve tutar var",
     alEkran.includes("Mehmet")&&alEkran.includes("10.000.000"),alEkran.slice(0,140));
   check("dışarıdaki toplam gösteriliyor",alEkran.includes("DIŞARIDA"));
+  /* Öne çıkan tarih vade olmalı; kaydın alındığı tarih önemsiz. */
+  check("vade tarihi öne çıkıyor",alEkran.includes("Vade "),alEkran.slice(0,200));
+  /* Vadesi olmayan alacak takip edilemez: uyarı ve elle vade girme yolu. */
+  await page.evaluate(async()=>{
+    LOANS.unshift({id:8801,kisi:'Vadesiz Kişi',tutar:1000,verildi:todayStr(),
+      vade:'',alindi:false,alindiAt:''});
+    await Store.set('loans',LOANS); renderLoans();
+  });
+  await page.waitForTimeout(200);
+  check("vadesiz alacak uyarı veriyor",
+    (await page.textContent("#loanList")).includes("Vade girilmedi"));
+  await page.evaluate(()=>{
+    window.prompt=()=>'24.08.2026';        // elle vade girme
+    loanVade(8801);
+  });
+  await page.waitForTimeout(250);
+  check("vade elle eklenebiliyor",
+    await page.evaluate(()=>(LOANS.find(l=>l.id===8801)||{}).vade==='2026-08-24'),
+    await page.evaluate(()=>JSON.stringify((LOANS.find(l=>l.id===8801)||{}).vade)));
+  await page.evaluate(async()=>{
+    LOANS=LOANS.filter(l=>l.id!==8801); await Store.set('loans',LOANS); renderLoans();
+  });
+  await page.waitForTimeout(150);
   await page.evaluate(()=>loanAlindi(LOANS[0].id));
   await page.waitForTimeout(250);
   check("geri alındı işaretlenebiliyor",await page.evaluate(()=>LOANS[0].alindi===true));
