@@ -210,9 +210,11 @@ else ok("dış script'lerin hepsi defer");
 }
 
 /* 11 — verilen borç algılaması.
-   İki şart birden aranıyor: verme fiili VE geri dönüş fiili. Yalnız
-   "verildi"ye bakılsaydı "işçi ödemesi verildi" de alacak sanılır, gerçek
-   gider tablodan düşerdi. Aşağıdaki olumsuz durumlar o çizgiyi tutuyor. */
+   İki yol var: "borç/ödünç ver" açıkça geçiyorsa tek başına yeter; yalnız
+   "verildi/verdim" varsa geri dönüş fiili de aranır. Tek kural ikisini
+   birden tutmuyor — geri dönüş şart koşulunca "Mehmet'e 5 milyon borç
+   verildi" kaçıp gider diye tabloya düşüyordu, şart kaldırılınca da "işçi
+   ödemesi verildi" alacak sanılıyor. Aşağıdaki iki liste o dengeyi tutuyor. */
 {
   const bas=html.indexOf("const NUMW="), son=html.indexOf("function money(n)");
   if(bas<0||son<0)bad("borç algılayıcı bulunamadı (test güncellenmeli).");
@@ -226,9 +228,17 @@ else ok("dış script'lerin hepsi defer");
       ["Hamdiye'ye 26 milyon verildi Ağustos 28'de tekrar ödeyecek",26000000,"2026-08-28"],
       ["Ali'ye 5 bin borç verdim ayın 26sında ödeyecek",             5000,"2026-08-26"],
       ["Veli'ye 2 milyon ödünç verildi üç ay sonra geri alacağım",2000000,"2026-11-09"],
+      /* Geri dönüş cümlesi olmayanlar — bunlar kaçıyordu. */
+      ["Mehmet güner'e 5 milyon borç verildi",                    5000000,""],
+      ["Mehmet güneri 26 milyon borç verildi",                   26000000,""],
+      ["Ali'ye 3 bin ödünç verildi",                                 3000,""],
+      ["Veli'ye 2 milyon borç verdim",                            2000000,""],
     ];
     const giderler=["işçi ödemesi 12 bin verildi","yakıt 900","fabrika gideri 5000 ödendi",
-                    "emanet beş bin","boya 2000 3 ay sonra ödenecek"];
+                    "emanet beş bin","boya 2000 3 ay sonra ödenecek",
+                    "borç ödemesi 5000 yapıldı",
+                    /* Parayı biz alıyoruz — bu bizim alacağımız değil. */
+                    "Ahmet bana 5 milyon borç verecek"];
     const kotu=[];
     borclar.forEach(([c,tutar,vade])=>{
       const r=api.detectLoan(c);

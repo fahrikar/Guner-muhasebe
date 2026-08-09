@@ -1470,10 +1470,19 @@ const SURE_KALIBI=new RegExp(
    diye yazılınca hem gideri şişiriyor hem kimin ne zaman ödeyeceği hiçbir
    yerde kalmıyordu.
 
-   İki şart birden aranıyor: verme fiili VE geri dönüş fiili. Yalnız "verildi"
-   yetmez — "işçi ödemesi verildi" bir alacak değil, gerçek giderdir. */
-const BORC_VERME=/(bor[çc]|[öo]d[üu]n[çc])\s*ver|veril(di|ecek)|verdim|verd[iı]k/i;
+   İki ayrı yol var, çünkü tek kural ikisini birden tutmuyor:
+
+   1) "borç verildi", "ödünç verdim" — borç sözcüğü açıkça geçiyorsa tek
+      başına yeter. Geri dönüş cümlesi şart koşulunca "Mehmet'e 5 milyon
+      borç verildi" kaçıyor ve gider diye tabloya düşüyordu.
+   2) Yalnız "verildi/verdim" varsa geri dönüş fiili de aranır. Aksi hâlde
+      "işçi ödemesi verildi" alacak sanılır, gerçek gider tablodan düşerdi.
+
+   "bana/bize borç verecek" tersidir — parayı biz alıyoruz, alacak değil. */
+const BORC_ACIK=/(bor[çc]|[öo]d[üu]n[çc])\s*ver/i;
+const BORC_VERME=/veril(di|ecek)|verdim|verd[iı]k/i;
 const BORC_DONUS=/(geri\s*)?(al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|verecek|[öo]deyecek|[öo]deyecekler|iade)/i;
+const BORC_BIZE=/\b(bana|bize|bize\s*ait)\b/i;
 const AY_SIRA={ocak:0,'şubat':1,subat:1,mart:2,nisan:3,'mayıs':4,mayis:4,haziran:5,
   temmuz:6,'ağustos':7,agustos:7,'eylül':8,eylul:8,ekim:9,'kasım':10,kasim:10,'aralık':11,aralik:11};
 function isoGun(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
@@ -1521,7 +1530,9 @@ function vadeCoz(text,bugun){
   return '';
 }
 function detectLoan(text){
-  if(!BORC_VERME.test(text)||!BORC_DONUS.test(text))return null;
+  if(BORC_BIZE.test(text))return null;
+  const borcMu=BORC_ACIK.test(text)||(BORC_VERME.test(text)&&BORC_DONUS.test(text));
+  if(!borcMu)return null;
   const items=parseItems(text);
   if(!items.length)return null;
   // Cümlede birden çok sayı varsa en büyüğü tutardır (diğerleri artık ayıklanmış olmalı).
@@ -2482,7 +2493,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-09.4";
+const APP_VERSION="2026-08-09.5";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
