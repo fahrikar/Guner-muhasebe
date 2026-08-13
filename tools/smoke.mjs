@@ -540,6 +540,34 @@ try{
     await page.evaluate(()=>{
       const e=CURRENT; CURRENT={rol:'mudur',ad:'Başka',mudurId:'m3'};
       const r=halisahaGorebilir(); CURRENT=e; return r===false;}));
+  /* Yer tanımları ve atamalar buluttan gelmeli: yalnız patronun cihazında
+     dururken müdürün telefonu kendi yerini bilmiyordu. Ağ olmadan
+     çözümleyiciyi doğrudan sınıyoruz. */
+  check("buluttan gelen yerler çözülüyor",
+    await page.evaluate(()=>{
+      const y=yerleriCoz({"2":{ad:'Halısaha',tur:'halisaha',mudurIds:['m1']},
+                          "7":{ad:'Malatya',mudurIds:['m2']}});
+      return y.length===2&&y.find(x=>x.id===2).mudurIds[0]==='m1'
+             &&y.find(x=>x.id===7).ad==='Malatya';}));
+  check("boş mudurIds diziye çevriliyor",
+    await page.evaluate(()=>yerleriCoz({"2":{ad:'Halısaha',tur:'halisaha'}})[0].mudurIds.length===0));
+  check("dizi biçimi de kabul ediliyor",
+    await page.evaluate(()=>{
+      const y=yerleriCoz([null,{ad:'Fabrika',tur:'fabrika',mudurIds:['m1']}]);
+      return y.length===1&&y[0].id===1&&y[0].tur==='fabrika';}));
+  check("düğüm boşken yerel liste korunuyor",
+    await page.evaluate(()=>yerleriCoz(null)===null&&yerleriCoz({})===null));
+  /* Müdür atamayı buluta yazmamalı: yazarsa patronun atamasını ezer. */
+  check("müdür yer yazamıyor",
+    await page.evaluate(async()=>{
+      const e=CURRENT; CURRENT={rol:'mudur',ad:'M',mudurId:'m1'};
+      let yazdi=false;
+      const eskiDb=window.db;
+      window.db={ref:()=>({set:async()=>{yazdi=true;}})};
+      await pushYerler();
+      window.db=eskiDb; CURRENT=e;
+      return yazdi===false;}));
+
   /* Fabrika ve halısahanın kendi sekmeleri var; şantiye listesinde de
      görünürlerse aynı rakamlar iki yerde çıkar. Silinemiyorlar da:
      silinirlerse müdür ataması sahipsiz kalır. */

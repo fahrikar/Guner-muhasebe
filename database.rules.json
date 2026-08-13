@@ -1,6 +1,6 @@
 // Realtime Database güvenlik kuralları. Ne yaptığı, ne yapmadığı ve nasıl
 // yayınlandığı README.md → "Firebase güvenlik kuralları" bölümünde.
-// Konsola yapıştırdıktan sonra: son satır 43 ve tek bir } olmalı.
+// Konsola yapıştırdıktan sonra: son satır 65 ve tek bir } olmalı.
 {
   "rules": {
     ".read": false,
@@ -37,6 +37,28 @@
         },
 
         "$diger": { ".validate": true }
+      }
+    },
+
+    // Şantiye / fabrika / halısaha tanımları ve müdür atamaları.
+    // Kayıtların aksine BURASI GÜNCELLENEBİLİR: bir müdür başka yere
+    // atandığında var olan kayıt değişir. O yüzden "yalnız ekleme" kuralı
+    // burada geçerli değil.
+    // Patron yazar, herkes okur — ama anonim girişte kuralın patronu
+    // ayırt etme imkânı yok; "yalnız patron yazsın" şartı uygulama
+    // tarafında. Buradaki koruma veriyi bozulmaya karşı tutuyor:
+    // alanların tipi ve uzunluğu sınırlı, tanınmayan alan kabul edilmiyor.
+    "yerler": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+
+      "$yerId": {
+        ".validate": "newData.hasChildren(['ad'])",
+        "ad":  { ".validate": "newData.isString() && newData.val().length <= 60" },
+        "tur": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "mudurIds": {
+          "$sira": { ".validate": "newData.isString() && newData.val().length <= 40" }
+        }
       }
     }
   }

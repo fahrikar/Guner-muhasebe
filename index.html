@@ -983,7 +983,7 @@ function belgeVazgec(){
 }
 
 /* Bulut senkron: müdür yazar, patron dinler */
-let cloudRef=null;
+let cloudRef=null, yerRef=null;
 function startCloud(){
   if(!cloudOn){
     document.getElementById('cloudWarn').textContent='';
@@ -999,11 +999,63 @@ function startCloud(){
       mergeCloudNotes(cloudNotes);
     });
   }
+  /* Yerleri HERKES dinler. Şantiye/fabrika/halısaha tanımları ve müdür
+     atamaları yalnız patronun cihazında dururken müdürün telefonu kendi
+     yerini bilmiyordu: Ahmet halısahaya atansa bile onun ekranında sekme
+     çıkmıyordu. Atamayı patron yazar, herkes okur. */
+  yerRef=db.ref('yerler');
+  yerRef.on('value',snap=>{
+    const gelen=yerleriCoz(snap.val());
+    if(!gelen)return;                 // düğüm henüz yok: yereldekiyle devam
+    SANTIYELER=gelen;
+    Store.set('santiyeler',SANTIYELER);
+    /* Atama değişince müdürün alt menüsü de değişmeli. */
+    if(CURRENT)applyRole();
+    renderSites(); renderFactory(); renderPitch();
+  },err=>{
+    /* Kurallar henüz yayınlanmadıysa okuma reddedilir. Sessiz kalırsa
+       "atama neden gelmiyor" sorusunun cevabı hiçbir yerde olmaz. */
+    console.warn('yerler okunamadı',err);
+    const w=document.getElementById('cloudWarn');
+    if(w&&!isPatron())w.textContent='⚠️ Şantiye/halısaha ataması buluttan okunamadı.';
+  });
+}
+/* Firebase boş diziyi hiç yazmaz ve sayısal anahtarlı nesneyi bazen dizi
+   olarak geri verir; iki biçimi de kabul ediyoruz. */
+function yerleriCoz(val){
+  if(!val)return null;
+  const liste=Array.isArray(val)
+    ? val.map((v,i)=>v&&Object.assign({id:i},v))
+    : Object.keys(val).map(k=>Object.assign({id:Number(k)||k},val[k]));
+  const temiz=liste.filter(Boolean).map(y=>({
+    id:y.id, ad:String(y.ad||''), tur:y.tur||undefined,
+    mudurIds:Array.isArray(y.mudurIds)?y.mudurIds.filter(Boolean)
+            :y.mudurIds?Object.keys(y.mudurIds).map(k=>y.mudurIds[k]).filter(Boolean):[]
+  })).filter(y=>y.ad);
+  return temiz.length?temiz:null;
+}
+/* Yerleri buluta yazar — yalnız patron. Müdürün yazması atamayı bozardı. */
+async function pushYerler(){
+  if(!cloudOn||!isPatron())return;
+  try{
+    const map={};
+    SANTIYELER.forEach(y=>{
+      map[y.id]={ad:y.ad,mudurIds:(y.mudurIds||[])};
+      if(y.tur)map[y.id].tur=y.tur;
+    });
+    await db.ref('yerler').set(map);
+  }catch(e){
+    console.warn('yerler yazılamadı',e);
+    alert('Atama bu cihaza kaydedildi ama buluta yazılamadı.\n\n'
+         +'Firebase kurallarında "yerler" düğümü henüz açık değil; '
+         +'kurallar yayınlanınca müdürlerin telefonuna da geçecek.');
+  }
 }
 /* Dinleyici bırakılmazsa çıkış-giriş her tekrarında üst üste biniyor ve
    müdür oturumunda patronun kayıtları akmaya devam ediyordu. */
 function stopCloud(){
   if(cloudRef){ try{cloudRef.off();}catch(e){} cloudRef=null; }
+  if(yerRef){ try{yerRef.off();}catch(e){} yerRef=null; }
 }
 function mergeCloudNotes(cloudNotes){
   // yerel + bulut birleştir (id'ye göre tekilleştir)
@@ -2527,7 +2579,7 @@ async function santiyeEkle(){
   if(!ad){alert('Şantiye adı gerekli.');return;}
   if(SANTIYELER.some(s=>trLower(s.ad)===trLower(ad))){alert('Bu adda bir şantiye zaten var.');return;}
   SANTIYELER.push({id:Date.now(),ad:ad,mudurIds:[]});
-  await Store.set('santiyeler',SANTIYELER);
+  await Store.set('santiyeler',SANTIYELER); await pushYerler();
   document.getElementById('sanAd').value='';
   renderSites();
 }
@@ -2535,21 +2587,21 @@ async function santiyeSil(id){
   const s=SANTIYELER.find(x=>x.id===id); if(!s)return;
   if(!confirm('"'+s.ad+'" şantiyesi silinsin mi?\n\nKayıtlar silinmez, yalnız şantiye ayrımı kalkar.'))return;
   SANTIYELER=SANTIYELER.filter(x=>x.id!==id);
-  await Store.set('santiyeler',SANTIYELER);
+  await Store.set('santiyeler',SANTIYELER); await pushYerler();
   renderSites(); renderFactory();
 }
 async function santiyeAdDegis(id){
   const s=SANTIYELER.find(x=>x.id===id); if(!s)return;
   const ad=(prompt('Yeni ad:',s.ad)||'').trim();
   if(!ad||ad===s.ad)return;
-  s.ad=ad; await Store.set('santiyeler',SANTIYELER); renderSites();
+  s.ad=ad; await Store.set('santiyeler',SANTIYELER); await pushYerler(); renderSites();
 }
 /* Bir müdür tek şantiyede olur: yeni atama öncekini siler. */
 async function mudurAta(mudurId,santiyeId){
   SANTIYELER.forEach(s=>{ s.mudurIds=(s.mudurIds||[]).filter(m=>m!==mudurId); });
   const s=SANTIYELER.find(x=>x.id===santiyeId);
   if(s)s.mudurIds.push(mudurId);
-  await Store.set('santiyeler',SANTIYELER);
+  await Store.set('santiyeler',SANTIYELER); await pushYerler();
   renderSites(); renderFactory();
 }
 /* Bir yerin (şantiye ya da fabrika) kayıtlarını toplar.
@@ -2995,7 +3047,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-13.2";
+const APP_VERSION="2026-08-13.3";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
