@@ -56,7 +56,27 @@ değiştiğinde kuralları kendi basar. Tek eksik, deploy edecek kimlik:
 
 Secret yoksa workflow kendini atlıyor, hata vermiyor. İnen `.json`
 anahtarı projenin tam yetkisini taşır — GitHub secret'ına yapıştırdıktan
-sonra bilgisayardan sil, hiçbir yere kopyalama.
+sonra bilgisayardan sil, hiçbir yere kopyalama, sohbete yapıştırma.
+
+**Bu secret'ı yalnız depo sahibi ekleyebilir.** Değeri Firebase konsolundan
+Google hesabıyla üretiliyor; ayrıca GitHub'ın secret API'si dışarıdan
+kapalı. Yani bu adım devredilemiyor.
+
+### Birden çok repoda aynı secret
+
+GitHub Actions secret'ları üç yerde durur: **depo**, **ortam**,
+**kuruluş (organization)**. Kişisel hesap seviyesinde secret yoktur —
+"bütün repolarım için bir kere" diye bir seçenek GitHub'da yok.
+
+Aynı anahtar birden çok repoda lazım olursa yol şu: ücretsiz bir
+**organization** açılır, repolar oraya taşınır, secret bir kez
+**organization secret** olarak "All repositories" görünürlüğüyle eklenir.
+O andan sonra o kuruluşta açılan **her yeni repo** secret'ı kendiliğinden
+görür.
+
+Workflow'da değişiklik gerekmiyor: `secrets.FIREBASE_SERVICE_ACCOUNT`
+depo secret'ında da kuruluş secret'ında da aynı şekilde okunuyor.
+Şimdilik Firebase kullanan tek depo burası, o yüzden depo secret'ı yeter.
 
 ## Bilinmesi gereken kararlar
 
