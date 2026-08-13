@@ -540,6 +540,23 @@ try{
     await page.evaluate(()=>{
       const e=CURRENT; CURRENT={rol:'mudur',ad:'Başka',mudurId:'m3'};
       const r=halisahaGorebilir(); CURRENT=e; return r===false;}));
+  /* Fabrika ve halısahanın kendi sekmeleri var; şantiye listesinde de
+     görünürlerse aynı rakamlar iki yerde çıkar. Silinemiyorlar da:
+     silinirlerse müdür ataması sahipsiz kalır. */
+  await page.evaluate(()=>{go('sites');siteTab('durum');});
+  await page.waitForTimeout(250);
+  const sanList=await page.textContent("#siteDurum");
+  check("halısaha şantiye listesinde görünmüyor",
+    !sanList.includes("Halısaha"),sanList.slice(0,200));
+  await page.evaluate(()=>siteTab('ayar'));
+  await page.waitForTimeout(250);
+  const sanAyar=await page.textContent("#siteAyar");
+  check("halısaha ve fabrika silinemiyor",
+    !/Halısaha[\s\S]{0,80}Sil/.test(sanAyar)&&!/Fabrika[\s\S]{0,80}Sil/.test(sanAyar),
+    sanAyar.slice(0,200));
+  check("müdür atamasında halısaha ve fabrika seçilebiliyor",
+    sanAyar.includes("Halısaha")&&sanAyar.includes("Fabrika"));
+  await page.evaluate(()=>siteTab('durum'));
   await page.evaluate(async()=>{
     NOTES=NOTES.filter(n=>n.type!=='hizli'); await Store.set('notes',NOTES);
     go('notes');renderTable();

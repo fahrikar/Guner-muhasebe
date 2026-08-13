@@ -2636,7 +2636,11 @@ function yerKarti(yer){
 function renderSites(){
   const durum=document.getElementById('siteDurum'), ayar=document.getElementById('siteAyar');
   if(!durum||!ayar)return;
-  const yerler=SANTIYELER.filter(s=>s.tur!=='fabrika');
+  /* Bu ekran yalnız şantiyeler. Fabrika ve halısahanın kendi sekmeleri var,
+     burada da listelenirlerse aynı rakamlar iki yerde görünür. */
+  /* Adı değiştirilip silinebilenler de yalnız bunlar: fabrika ve halısaha
+     kalıcı işletmeler, silinirlerse müdür ataması sahipsiz kalır. */
+  const yerler=SANTIYELER.filter(s=>!s.tur);
 
   /* --- Durum --- */
   if(!yerler.length){
@@ -2702,6 +2706,8 @@ function halisahaYeri(){
 /* Halısaha kalemi, kimin girdiğine bakılmadan halısahaya sayılır — söve
    satışının fabrikaya sayılmasıyla aynı gerekçe. */
 function halisahaKalemi(it){ return HALISAHA_KATEGORILERI.indexOf(it.known)>=0; }
+/* Patron görür; müdürlerden yalnız halısahaya ATANMIŞ olan görür. Diğer
+   müdürlerin ekranında bu sekme çıkmaz. */
 function halisahaGorebilir(){
   if(!CURRENT)return false;
   if(isPatron())return true;
@@ -2989,7 +2995,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-13.1";
+const APP_VERSION="2026-08-13.2";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
