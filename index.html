@@ -128,8 +128,12 @@
   nav{position:fixed;bottom:0;left:0;right:0;display:flex;
     background:rgba(250,246,238,.82);backdrop-filter:saturate(180%) blur(14px);
     border-top:1px solid var(--line);padding:8px 4px 12px}
-  nav button{flex:1;background:none;border:0;color:var(--sub);font-size:11px;letter-spacing:-.01em;
-    display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0;cursor:pointer}
+  /* Sekme sayısı arttı (8'e kadar): yazı küçüldü, kelime bölünmüyor ve
+     düğmeler eşit paylaşıyor. min-width:0 olmadan uzun etiket düğmeyi
+     şişirip diğerlerini taşırıyordu. */
+  nav button{flex:1;min-width:0;background:none;border:0;color:var(--sub);font-size:10px;
+    letter-spacing:-.02em;white-space:nowrap;
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 1px;cursor:pointer}
   nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   nav button.on{color:var(--ink)}
 
@@ -421,6 +425,18 @@
     <h2>Fabrika</h2>
     <div id="factoryBox"></div>
   </section>
+
+  <!-- HALISAHA — patron ve halısahaya atanmış müdür görür.
+       Büfe satışları gün içinde çok ve küçük: konuşmak yerine tek dokunuş. -->
+  <section class="screen" id="pitch">
+    <h2>Halısaha</h2>
+    <div class="tabs">
+      <div class="tab on" id="tabPBugun" onclick="pitchDonem('bugun')">Bugün</div>
+      <div class="tab" id="tabPAy" onclick="pitchDonem('ay')">Bu ay</div>
+      <div class="tab" id="tabPHepsi" onclick="pitchDonem('hepsi')">Tümü</div>
+    </div>
+    <div id="pitchBox"></div>
+  </section>
 </main>
 
 <nav>
@@ -438,7 +454,25 @@
     <svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M6 20V9l6-4 6 4v11"/><line x1="10" y1="20" x2="10" y2="14"/><line x1="14" y1="20" x2="14" y2="14"/></svg>Şantiye</button>
   <button id="nFactory" onclick="go('factory')">
     <svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M4 20V10l5 3.5V10l5 3.5V10l5 3.5V20"/><line x1="4" y1="10" x2="4" y2="6"/></svg>Fabrika</button>
+  <button id="nPitch" onclick="go('pitch')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="12" y1="5" x2="12" y2="19"/><circle cx="12" cy="12" r="2.5"/></svg>Halısaha</button>
 </nav>
+
+<!-- Halısaha hızlı giriş: kalem seçilir, tek alan doldurulur. -->
+<div id="hizliKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
+  <div style="background:#fffdf8;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))">
+    <div style="font-weight:700;font-size:16px" id="hizliBaslik"></div>
+    <div class="muted" id="hizliAlt" style="margin:4px 0 12px"></div>
+    <label for="hizliTutar">Tutar (₺)</label>
+    <input id="hizliTutar" inputmode="decimal" placeholder="0"
+           style="font-size:22px;font-weight:600;text-align:right">
+    <div class="muted" id="hizliUyari" style="min-height:18px;margin-top:7px"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" style="flex:1" onclick="hizliKaydet()">Kaydet</button>
+      <button class="btn sm ghost" onclick="hizliKapat()">Vazgeç</button>
+    </div>
+  </div>
+</div>
 
 <!-- Ayarlar penceresi. İçeriği ayarCiz() dolduruyor; tablo ekranının altında
      duran kartlar buraya taşındı. -->
@@ -706,10 +740,16 @@ async function loadAll(){
   /* Fabrika hep var: şantiye gibi silinip eklenen bir yer değil, işletmenin
      kendisi. Aynı listede tur:'fabrika' ile duruyor ki müdür atama ve
      toplama kodu ikisi için de aynı olsun. */
+  let yerEklendi=false;
   if(!SANTIYELER.some(s=>s.tur==='fabrika')){
-    SANTIYELER.push({id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]});
-    await Store.set('santiyeler',SANTIYELER);
+    SANTIYELER.push({id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]}); yerEklendi=true;
   }
+  /* Halısaha da fabrika gibi kalıcı bir işletme; şantiye listesinde
+     tur:'halisaha' ile duruyor ki atama ve toplama aynı kodu kullansın. */
+  if(!SANTIYELER.some(s=>s.tur==='halisaha')){
+    SANTIYELER.push({id:2,ad:'Halısaha',tur:'halisaha',mudurIds:[]}); yerEklendi=true;
+  }
+  if(yerEklendi)await Store.set('santiyeler',SANTIYELER);
   LEXICON=await Store.get('lexicon',[]);
   SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
@@ -734,6 +774,10 @@ function applyRole(){
   ['nReports','nStock','nPayments','nSites','nFactory'].forEach(id=>{
     const el=document.getElementById(id); if(el)el.style.display=patron?'':'none';
   });
+  /* Halısaha sekmesi patronda ve halısahaya atanmış müdürde görünür:
+     o müdürün işi zaten burası, Tablo'dan girmesi zahmetli. */
+  const np=document.getElementById('nPitch');
+  if(np)np.style.display=halisahaGorebilir()?'':'none';
   // başlıkta kim olduğunu göster
   const hr=document.getElementById('hdrRight');
   if(hr)hr.textContent=CURRENT.ad+(patron?'':' · sadece gider girişi');
@@ -970,7 +1014,7 @@ function mergeCloudNotes(cloudNotes){
   Store.set('notes',NOTES);
   /* Müdür kaydı bulutta göründüğü anda şantiye ekranı da tazelensin —
      "anlık takip" bunu gerektiriyor. */
-  renderTable(); renderSites(); renderFactory();
+  renderTable(); renderSites(); renderFactory(); renderPitch();
 }
 async function pushCloudNote(note){
   if(!cloudOn||!CURRENT)return;
@@ -1033,7 +1077,7 @@ function banner(text){
 }
 
 /* ---------- navigation ---------- */
-const titles={home:'Sesli & Görsel Kayıt',voice:'Sesli Komut',camera:'Kamera',notes:'Tablo',reports:'Rapor',stock:'Stok Takibi',payments:'Ödeme ve Alacak',sites:'Şantiyeler',factory:'Fabrika'};
+const titles={home:'Sesli & Görsel Kayıt',voice:'Sesli Komut',camera:'Kamera',notes:'Tablo',reports:'Rapor',stock:'Stok Takibi',payments:'Ödeme ve Alacak',sites:'Şantiyeler',factory:'Fabrika',pitch:'Halısaha'};
 /* Sadece patronun görmesi gereken ekranlar. Menüyü gizlemek yetmez:
    go() doğrudan çağrılabildiği için erişim burada da kapatılır. */
 const PATRON_ONLY=['reports','stock','payments','sites','factory'];
@@ -1043,6 +1087,7 @@ function go(id){
      menüden bir sekmeye dokunmak PIN'i tamamen atlıyordu. */
   if(!CURRENT){ showLogin(); return; }
   if(!isPatron()&&PATRON_ONLY.includes(id))id='home';
+  if(id==='pitch'&&!halisahaGorebilir())id='home';
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('login').style.display='none';
   document.getElementById(id).classList.add('active');
@@ -1056,6 +1101,7 @@ function go(id){
   if(id==='payments'){renderPayments();renderLoans();}
   if(id==='sites')renderSites();
   if(id==='factory')renderFactory();
+  if(id==='pitch')renderPitch();
   if(id==='camera')startCam(); else stopCam();
 }
 
@@ -1440,7 +1486,15 @@ const CATEGORY_MAP=[
   {ad:'Vergi',             grup:'Gider',                      yon:'borc',   kelimeler:['vergi','sgk','stopaj']},
   {ad:'Elektrik',          grup:'Gider',                      yon:'borc',   kelimeler:['elektrik']},
   {ad:'Su',                grup:'Gider',                      yon:'borc',   kelimeler:['su faturası','su fatura']},
-  {ad:'Doğalgaz',          grup:'Gider',                      yon:'borc',   kelimeler:['doğalgaz','dogalgaz','gaz faturası']}
+  {ad:'Doğalgaz',          grup:'Gider',                      yon:'borc',   kelimeler:['doğalgaz','dogalgaz','gaz faturası']},
+  /* Halısaha işletmesi: saha kirası ana gelir, büfe satışları yanında.
+     Hepsi 'Halısaha' grubunda ki hem hızlı giriş ekranı hem de yer bazlı
+     toplama bunları tek yerden bulabilsin. */
+  {ad:'Saha Kirası',       grup:'Halısaha',                   yon:'alacak', kelimeler:['saha kira','halısaha kira','halisaha kira','saha ücret','maç ücret','rezervasyon']},
+  {ad:'Çay Satışı',        grup:'Halısaha',                   yon:'alacak', kelimeler:['çay','cay','içecek','icecek','büfe','bufe','su satış']},
+  {ad:'Forma Satışı',      grup:'Halısaha',                   yon:'alacak', kelimeler:['forma']},
+  {ad:'Ayakkabı Satışı',   grup:'Halısaha',                   yon:'alacak', kelimeler:['ayakkabı','ayakkabi','krampon','halısaha ayakkabı']},
+  {ad:'Halısaha Gideri',   grup:'Halısaha',                   yon:'borc',   kelimeler:['halısaha gider','halisaha gider','saha gider','saha bakım','temizlik','file']}
 ];
 /* Yön kayıtlarda saklanmıyor, kategoriden okunuyor: eski kayıtlar da doğru
    tarafa düşer ve bir kategorinin yönü düzeltilince geçmiş kendiliğinden
@@ -2516,6 +2570,7 @@ function fabrikaId(){
    giren müdürün bağlı olduğu yere. Yeri yoksa hiçbir ekranda toplanmaz. */
 function kalemYeriId(n,it){
   if(fabrikaKalemi(it))return fabrikaId();
+  if(halisahaKalemi(it))return halisahaYeri().id;
   const s=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(n.mudurId)>=0);
   return s?s.id:null;
 }
@@ -2635,6 +2690,154 @@ function renderSites(){
 function fabrikaYeri(){
   return SANTIYELER.find(s=>s.tur==='fabrika')||{id:0,ad:'Fabrika',tur:'fabrika',mudurIds:[]};
 }
+/* ---------- HALISAHA ----------
+   Büfe satışları gün içinde çok ve küçük tutarlı; her birini konuşmak
+   zahmetli. Kalem düğmesine dokun, tutarı yaz, biter. Kayıt normal kayıt
+   akışıyla aynı yere düşüyor (onaylı, müdür kimliğiyle), yani tabloda,
+   raporda, Excel'de ve patronun yer ekranlarında görünüyor. */
+const HALISAHA_KATEGORILERI=['Saha Kirası','Çay Satışı','Forma Satışı','Ayakkabı Satışı','Halısaha Gideri'];
+function halisahaYeri(){
+  return SANTIYELER.find(s=>s.tur==='halisaha')||{id:2,ad:'Halısaha',tur:'halisaha',mudurIds:[]};
+}
+/* Halısaha kalemi, kimin girdiğine bakılmadan halısahaya sayılır — söve
+   satışının fabrikaya sayılmasıyla aynı gerekçe. */
+function halisahaKalemi(it){ return HALISAHA_KATEGORILERI.indexOf(it.known)>=0; }
+function halisahaGorebilir(){
+  if(!CURRENT)return false;
+  if(isPatron())return true;
+  return (halisahaYeri().mudurIds||[]).indexOf(CURRENT.mudurId)>=0;
+}
+
+let PITCH_DONEM='bugun';
+function pitchDonem(d){
+  PITCH_DONEM=d;
+  ['bugun','ay','hepsi'].forEach(k=>{
+    const el=document.getElementById('tabP'+(k==='bugun'?'Bugun':k==='ay'?'Ay':'Hepsi'));
+    if(el)el.classList.toggle('on',k===d);
+  });
+  renderPitch();
+}
+function pitchBaslangic(){
+  const n=new Date();
+  if(PITCH_DONEM==='bugun')return new Date(n.getFullYear(),n.getMonth(),n.getDate());
+  if(PITCH_DONEM==='ay')return new Date(n.getFullYear(),n.getMonth(),1);
+  return new Date(0);
+}
+let hizliKategori='';
+function hizliAc(kategori){
+  hizliKategori=kategori;
+  const alacak=yonOf(kategori)==='alacak';
+  document.getElementById('hizliBaslik').textContent=kategori;
+  document.getElementById('hizliAlt').textContent=alacak?'Gelir — kasaya giren':'Gider — kasadan çıkan';
+  document.getElementById('hizliTutar').value='';
+  document.getElementById('hizliUyari').textContent='';
+  document.getElementById('hizliKat').style.display='flex';
+  setTimeout(()=>{const t=document.getElementById('hizliTutar');if(t)t.focus();},80);
+}
+function hizliKapat(){ document.getElementById('hizliKat').style.display='none'; }
+async function hizliKaydet(){
+  const tutar=toNumber(document.getElementById('hizliTutar').value||'');
+  if(!(tutar>0)){document.getElementById('hizliUyari').textContent='Sıfırdan büyük bir tutar yaz.';return;}
+  const mc=CATEGORY_MAP.find(c=>c.ad===hizliKategori);
+  const items=[{category:hizliKategori,amount:tutar,raw:hizliKategori+' '+tutar,
+                known:hizliKategori,grup:mc?mc.grup:'Halısaha'}];
+  /* Gider girişlerinde belge kuralı burada da geçerli: hızlı giriş bir
+     kestirme, kuralların dışı değil. */
+  let belge=null;
+  if(belgeGerekir(items)){
+    hizliKapat();
+    belge=await belgeSor(items);
+    if(!belge){alert('Gider girişi için belge gerekiyor. Kaydedilmedi.');return;}
+  }
+  const yeni={id:Date.now(),type:'hizli',text:hizliKategori+' '+money(tutar),
+              items:items,onayli:true,createdAt:new Date().toISOString()};
+  if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
+  NOTES.unshift(yeni);
+  await Store.set('notes',NOTES);
+  pushCloudNote(yeni);
+  hizliKapat();
+  renderPitch(); renderTable();
+}
+function renderPitch(){
+  const box=document.getElementById('pitchBox');
+  if(!box)return;
+  const bas=pitchBaslangic();
+  const satirlar=[]; let gelir=0,gider=0;
+  const kategori={};
+  onayliNotes().forEach(n=>{
+    if(new Date(n.createdAt)<bas)return;
+    (n.items||[]).forEach(it=>{
+      if(!it.known||!halisahaKalemi(it))return;
+      const alacak=yonOf(it.known)==='alacak';
+      if(alacak)gelir+=it.amount; else gider+=it.amount;
+      kategori[it.known]=(kategori[it.known]||0)+it.amount;
+      satirlar.push({noteId:n.id,tarih:n.createdAt,kategori:it.known,
+                     tutar:it.amount,alacak:alacak,mudur:n.mudur||''});
+    });
+  });
+  satirlar.sort((a,b)=>String(b.tarih).localeCompare(String(a.tarih)));
+  const net=gelir-gider;
+  const donemAd=PITCH_DONEM==='bugun'?'Bugün':PITCH_DONEM==='ay'?'Bu ay':'Tümü';
+
+  let h='<div class="card" style="border-top:3px solid '+(net<0?'var(--danger)':'var(--ok)')+'">'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline">'
+    +'<div><div style="font-weight:700">'+donemAd+'</div>'
+    +'<div class="muted" style="font-size:12px">'+satirlar.length+' kalem</div></div>'
+    +'<div class="para" style="font-weight:700;font-size:19px;color:'+(net<0?'var(--danger)':'var(--ok)')+'">'
+    +(net<0?'−':'')+money(Math.abs(net))+'</div></div>'
+    +'<div style="display:flex;gap:14px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">'
+    +'<div style="flex:1"><div class="muted" style="font-size:12px">Gelir</div>'
+      +'<div class="para" style="font-weight:600;color:var(--ok)">'+money(gelir)+'</div></div>'
+    +'<div style="flex:1"><div class="muted" style="font-size:12px">Gider</div>'
+      +'<div class="para" style="font-weight:600;color:var(--danger)">'+money(gider)+'</div></div></div></div>';
+
+  // hızlı giriş
+  h+='<div class="card"><div style="font-weight:600;margin-bottom:2px">Hızlı giriş</div>'
+    +'<div class="muted" style="margin-bottom:10px">Kaleme dokun, tutarı yaz.</div>'
+    +'<div class="row">'
+    +HALISAHA_KATEGORILERI.map(c=>{
+      const alacak=yonOf(c)==='alacak';
+      return '<button class="btn sm'+(alacak?'':' ghost')+'" onclick="hizliAc(\''+c.replace(/'/g,"\\'")+'\')">'
+        +escapeHtml(c.replace(' Satışı','').replace(' Kirası',' kirası').replace(' Gideri',' gideri'))+'</button>';
+    }).join('')
+    +'</div></div>';
+
+  // kalem başına toplam
+  const enler=Object.keys(kategori).sort((a,b)=>kategori[b]-kategori[a]);
+  if(enler.length){
+    h+='<div class="card"><div style="font-weight:600;margin-bottom:2px">Kalem toplamları</div>'
+      +enler.map(c=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)">'
+        +'<span>'+escapeHtml(c)+'</span><b class="para" style="color:'+(yonOf(c)==='alacak'?'var(--ok)':'var(--danger)')+'">'
+        +(yonOf(c)==='alacak'?'':'−')+money(kategori[c])+'</b></div>').join('')
+      +'</div>';
+  }
+
+  if(!satirlar.length){
+    h+='<div class="empty">'+donemAd.toLocaleLowerCase('tr-TR')+' için kayıt yok.</div>';
+  }else{
+    h+='<div class="card" style="padding:0;overflow:hidden">'
+      +'<table class="tbl"><colgroup><col style="width:74px"><col><col style="width:112px"><col style="width:38px"></colgroup>'
+      +'<thead><tr><th>Tarih</th><th>Kalem</th><th class="num">Tutar</th><th></th></tr></thead><tbody>'
+      +satirlar.slice(0,60).map(r=>'<tr style="border-top:1px solid var(--line)">'
+        +'<td class="tar">'+fmt(r.tarih).split(' ')[0]+'</td>'
+        +'<td>'+escapeHtml(r.kategori)
+          +(isPatron()&&r.mudur?'<div class="alt">'+escapeHtml(r.mudur)+'</div>':'')+'</td>'
+        +'<td class="num" style="color:'+(r.alacak?'var(--ok)':'var(--danger)')+'">'
+          +(r.alacak?'':'−')+money(r.tutar)+'</td>'
+        +'<td class="sil"><button type="button" aria-label="Sil" onclick="pitchSil('+r.noteId+')">×</button></td></tr>').join('')
+      +'</tbody></table></div>';
+  }
+  box.innerHTML=h;
+}
+async function pitchSil(noteId){
+  const n=NOTES.find(x=>x.id===noteId); if(!n)return;
+  const it=(n.items||[])[0];
+  if(!confirm('"'+(it?it.known+' · '+money(it.amount):'kayıt')+'" silinsin mi?'))return;
+  NOTES=NOTES.filter(x=>x.id!==noteId);
+  await Store.set('notes',NOTES);
+  renderPitch(); renderTable();
+}
+
 function renderFactory(){
   const box=document.getElementById('factoryBox');
   if(!box)return;
@@ -2786,7 +2989,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-11.1";
+const APP_VERSION="2026-08-13.1";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

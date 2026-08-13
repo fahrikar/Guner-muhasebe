@@ -487,6 +487,65 @@ try{
   });
   await page.waitForTimeout(200);
 
+  /* --- halısaha: hızlı giriş ve yer bazlı toplama ---
+     Büfe satışları çok ve küçük; tek dokunuşla girilebilmeli. Kayıt normal
+     akışla aynı yere düşmeli ki tabloda, raporda ve patronun ekranında
+     görünsün. */
+  await page.evaluate(async()=>{
+    SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]},
+                {id:2,ad:'Halısaha',tur:'halisaha',mudurIds:['m1']}];
+    await Store.set('santiyeler',SANTIYELER);
+    go('pitch');pitchDonem('hepsi');
+  });
+  await page.waitForTimeout(250);
+  check("patron halısaha ekranını görüyor",await page.isVisible("#pitch"));
+  /* Sekme sayısı 8'e çıktı: telefon genişliğinde taşmamalı ve hiçbir etiket
+     kırpılmamalı. Gözle bakınca fark edilmeyip sessizce bozulan bir şey. */
+  const navOlcu=await page.evaluate(()=>{
+    const n=document.querySelector('nav');
+    const b=[...n.querySelectorAll('button')].filter(x=>x.style.display!=='none');
+    return {tasma:n.scrollWidth>n.clientWidth+1,
+            sayi:b.length,
+            kirpik:b.filter(x=>x.scrollWidth>x.clientWidth+1).map(x=>x.textContent.trim())};
+  });
+  check("alt menü telefon genişliğine sığıyor",
+    !navOlcu.tasma&&!navOlcu.kirpik.length,JSON.stringify(navOlcu));
+  check("hızlı giriş düğmeleri var",
+    (await page.textContent("#pitchBox")).includes("Hızlı giriş"));
+  const notOnceP=await page.evaluate(()=>NOTES.length);
+  await page.evaluate(()=>hizliAc('Çay Satışı'));
+  await page.waitForTimeout(200);
+  check("hızlı giriş penceresi açılıyor",await page.isVisible("#hizliKat"));
+  await page.evaluate(()=>{document.getElementById('hizliTutar').value='250';hizliKaydet();});
+  await page.waitForTimeout(300);
+  check("çay satışı kaydedildi",
+    await page.evaluate(n=>NOTES.length===n+1,notOnceP));
+  check("hızlı giriş kaydı onaylı sayılıyor",
+    await page.evaluate(()=>NOTES[0].onayli===true&&NOTES[0].items[0].known==='Çay Satışı'));
+  check("çay satışı gelir tarafında",
+    await page.evaluate(()=>yonOf('Çay Satışı')==='alacak'));
+  const pit=await page.textContent("#pitchBox");
+  check("halısaha ekranında tutar görünüyor",pit.includes("250"),pit.slice(0,200));
+  check("kalem toplamları listeleniyor",pit.includes("Kalem toplamları"));
+  /* Halısaha kalemi şantiyeye değil halısahaya sayılmalı. */
+  check("halısaha kalemi halısahaya yönleniyor",
+    await page.evaluate(()=>kalemYeriId({mudurId:'m2'},{known:'Forma Satışı'})===2));
+
+  /* Müdür Ahmet (m1) halısahaya atanmış: sekmeyi görmeli. Diğer müdür görmemeli. */
+  check("atanmış müdür halısahayı görebiliyor",
+    await page.evaluate(()=>{
+      const e=CURRENT; CURRENT={rol:'mudur',ad:'Ahmet',mudurId:'m1'};
+      const r=halisahaGorebilir(); CURRENT=e; return r===true;}));
+  check("atanmamış müdür halısahayı göremiyor",
+    await page.evaluate(()=>{
+      const e=CURRENT; CURRENT={rol:'mudur',ad:'Başka',mudurId:'m3'};
+      const r=halisahaGorebilir(); CURRENT=e; return r===false;}));
+  await page.evaluate(async()=>{
+    NOTES=NOTES.filter(n=>n.type!=='hizli'); await Store.set('notes',NOTES);
+    go('notes');renderTable();
+  });
+  await page.waitForTimeout(200);
+
   /* Rapor kategori toplamlarını gösterir; ham konuşma metinleri artık
      listelenmiyor (sayfayı dolduruyordu). */
   await page.evaluate(()=>{go('reports');report('month');});
