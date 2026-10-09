@@ -579,12 +579,12 @@ const PIN_SALT="cda81949d6eb93e09623214361e1fe85";
 const PIN_ITER=310000;
 /* Kaynaktaki taban liste — `npm run pin` bu bloğu yeniden yazar. */
 let BASE_ROLES=[
-  {rol:'patron', ad:'Abdurrahman', hash:'b5f3459aaf4a07ad3674586ce5dbd1aa42457d8a66cbd001edad61f4a89b8741'},
-  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'60602f868105c86b99cfaf727ea7d13dcc4961a5698ce3f0529dd410405ed72e'},
-  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'5af77d27cfc0d087306ae6375f4117070751958d068769ab6ddd11c03a08bea0'},
-  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'b7ba5a54795f94968f10215783838e96fcdb8f7fa567266ee8681850fa025985'},
-  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'adfdbd30b9edf0fbbe36e949636a8befdaad65bab7a8d9d4f220525a4c7d907e'},
-  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'fbf19fc9f239502db9bb6b71ee3e5df90aebfde883a6854a3f176de14628e7ee'}
+  {rol:'patron', ad:'Abdurrahman', hash:'eb3152a0b99f2f296afe57ae0d9bc1f08a74c054e9af64f2f4fecf81a0b6cb0b'},
+  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'9013b21a48418751b29f12bd9eebadb726eaf43aedc2770c68e8e3dc2a113126'},
+  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'1a079c95786ffe7e7cf6febf0c66f77431871f6581492184b587a8cd0d186f64'},
+  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'1cec8d97cf59d9feb5b8c0663001eaa897af33a24b88a926a821e609ae083606'},
+  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'42725f72dd2e39695ac4dbf208fc430fc744dfb52b71d98707f456da6459d259'},
+  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'9de82577ede24889e31253591ec4878502ffe7f1f6fe855a770c3c83ec10ec4b'}
 ];
 
 /* Kullanıcı kendi PIN'ini uygulama içinden değiştirebiliyor. Sayfa kendi
@@ -3047,7 +3047,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-08-13.3";
+const APP_VERSION="2026-10-09.1";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
