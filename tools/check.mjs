@@ -217,47 +217,51 @@ else ok("dış script'lerin hepsi defer");
   }
 }
 
-/* 11 — verilen borç algılaması.
-   İki yol var: "borç/ödünç ver" açıkça geçiyorsa tek başına yeter; yalnız
-   "verildi/verdim" varsa geri dönüş fiili de aranır. Tek kural ikisini
-   birden tutmuyor — geri dönüş şart koşulunca "Mehmet'e 5 milyon borç
-   verildi" kaçıp gider diye tabloya düşüyordu, şart kaldırılınca da "işçi
-   ödemesi verildi" alacak sanılıyor. Aşağıdaki iki liste o dengeyi tutuyor. */
+/* 11 — çek algılaması.
+   Çekler ekranına yalnız çek gitmeli. Eskiden "verildi … alınacak" geçen her
+   cümle verilen borç sayılıp oraya gidiyor, tablo ve rapordan düşüyordu.
+   Çek cümlelerinde yön, tutar, vade ve kişi tahmin edilir; çek olmayan
+   borç/alacak cümleleri hiç yakalanmamalı. */
 {
   const bas=html.indexOf("const NUMW="), son=html.indexOf("function money(n)");
-  if(bas<0||son<0)bad("borç algılayıcı bulunamadı (test güncellenmeli).");
+  if(bas<0||son<0)bad("çek algılayıcı bulunamadı (test güncellenmeli).");
   else try{
     const api=new Function("const pad=n=>String(n).padStart(2,'0');"+html.slice(bas,son)
-      +"\nreturn {detectLoan,vadeCoz};")();
+      +"\nreturn {cekCumlesi,cekGorselCoz,cekGorselMi,vadeCoz};")();
     const G="2026-08-09T12:00:00";
-    const borclar=[
-      ["Mehmet güner'e 10 milyon verildi 15 gün sonra alınacak",10000000,"2026-08-24"],
-      ["Mehmet'e 16 milyon verildi 26 Eylül'de geri alınacak",   16000000,"2026-09-26"],
-      ["Hamdiye'ye 26 milyon verildi Ağustos 28'de tekrar ödeyecek",26000000,"2026-08-28"],
-      ["Ali'ye 5 bin borç verdim ayın 26sında ödeyecek",             5000,"2026-08-26"],
-      ["Veli'ye 2 milyon ödünç verildi üç ay sonra geri alacağım",2000000,"2026-11-09"],
-      /* Geri dönüş cümlesi olmayanlar — bunlar kaçıyordu. */
-      ["Mehmet güner'e 5 milyon borç verildi",                    5000000,""],
-      ["Mehmet güneri 26 milyon borç verildi",                   26000000,""],
-      ["Ali'ye 3 bin ödünç verildi",                                 3000,""],
-      ["Veli'ye 2 milyon borç verdim",                            2000000,""],
+    const cekler=[
+      ["Mehmet'e 50 bin çek verdim 15 gün sonra",            "borc",  50000,"2026-08-24","Mehmet"],
+      ["Ali'den 120 bin çek aldım 26 Eylül vadeli",           "alacak",120000,"2026-09-26","Ali"],
+      ["Hasan bize 30 bin çek verdi ayın 20'sinde",           "alacak",30000,"2026-08-20","Hasan"],
+      ["Ahmet'e 75 bin çekle ödeme yapıldı",                  "borc",  75000,"",          "Ahmet"],
+      ["tedarikçiye 200 bin çek yazdım",                      "borc",  200000,"",         ""],
+      ["müşteriden gelen çek 40 bin tahsil edilecek",         "alacak",40000,"",          ""],
     ];
-    const giderler=["işçi ödemesi 12 bin verildi","yakıt 900","fabrika gideri 5000 ödendi",
-                    "emanet beş bin","boya 2000 3 ay sonra ödenecek",
-                    "borç ödemesi 5000 yapıldı",
-                    /* Parayı biz alıyoruz — bu bizim alacağımız değil. */
-                    "Ahmet bana 5 milyon borç verecek"];
+    const degil=["Mehmet'e 10 milyon verildi 15 gün sonra alınacak","bankadan 5 bin para çektim",
+                 "işçi ödemesi 12 bin verildi","yakıt 900","gelecek hafta 5000 ödeyecek",
+                 "Ali'ye 5 bin borç verdim","Ahmet bana 5 milyon borç verecek"];
     const kotu=[];
-    borclar.forEach(([c,tutar,vade])=>{
-      const r=api.detectLoan(c);
-      if(!r)kotu.push(`"${c}" borç olarak algılanmadı`);
-      else if(r.tutar!==tutar)kotu.push(`"${c}" tutarı ${r.tutar}, beklenen ${tutar}`);
-      else if(api.vadeCoz(c,G)!==vade)kotu.push(`"${c}" vadesi ${api.vadeCoz(c,G)||"boş"}, beklenen ${vade}`);
+    cekler.forEach(([c,yon,tutar,vade,kisi])=>{
+      const r=api.cekCumlesi(c);
+      if(!r){kotu.push(`"${c}" çek olarak algılanmadı`);return;}
+      if(r.yon!==yon)kotu.push(`"${c}" yönü ${r.yon||"boş"}, beklenen ${yon}`);
+      if(r.tutar!==tutar)kotu.push(`"${c}" tutarı ${r.tutar}, beklenen ${tutar}`);
+      if(api.vadeCoz(c,G)!==vade)kotu.push(`"${c}" vadesi ${api.vadeCoz(c,G)||"boş"}, beklenen ${vade||"boş"}`);
+      if(r.kisi!==kisi)kotu.push(`"${c}" kişi "${r.kisi}", beklenen "${kisi}"`);
     });
-    giderler.forEach(c=>{ if(api.detectLoan(c))kotu.push(`"${c}" borç sanıldı — gerçek gider tablodan düşer`); });
-    if(kotu.length)kotu.forEach(m=>bad("borç algılama: "+m));
-    else ok(`verilen borç algılaması (${borclar.length} borç, ${giderler.length} gider)`);
-  }catch(e){ bad(`borç algılayıcı çalıştırılamadı: ${e.message}`); }
+    degil.forEach(c=>{ if(api.cekCumlesi(c))kotu.push(`"${c}" çek sanıldı — tabloya işlenmesi gerekiyordu`); });
+    /* Çek görseli: seri numarası tutar sanılmamalı, keşide tarihi vade olmalı. */
+    const ocr="T.C. ZİRAAT BANKASI\nÇEK\nKeşide Yeri: Malatya  Keşide Tarihi: 15.11.2026\n"
+             +"Bu çek karşılığında #125.000,00# TL ödeyiniz\nSeri No: 1234567  Tarih 01.10.2026";
+    const g=api.cekGorselCoz(ocr);
+    if(!api.cekGorselMi(ocr))kotu.push("çek görseli tanınmadı");
+    if(g.tutar!==125000)kotu.push(`görselden tutar ${g.tutar}, beklenen 125000`);
+    if(g.yon!=="")kotu.push(`görselde yön tahmin edildi (${g.yon}) — her çekte "keşide" yazar, kişi seçmeli`);
+    if(g.vade!=="2026-11-15")kotu.push(`görselden vade ${g.vade||"boş"}, beklenen 2026-11-15`);
+    if(api.cekGorselMi("Market fişi\nEkmek 15,00\nToplam 87,50"))kotu.push("market fişi çek sanıldı");
+    if(kotu.length)kotu.forEach(m=>bad("çek algılama: "+m));
+    else ok(`çek algılaması (${cekler.length} çek, ${degil.length} çek olmayan, 1 görsel)`);
+  }catch(e){ bad(`çek algılayıcı çalıştırılamadı: ${e.message}`); }
 }
 
 /* 12 — söve satışı hem gelir hem fabrika kalemi olmalı.

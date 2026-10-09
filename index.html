@@ -308,7 +308,8 @@
       <textarea id="ocrText" placeholder="Fotoğraftaki yazı burada çıkacak…"></textarea>
       <div class="row" style="margin-top:12px">
         <button class="btn sm" onclick="saveNote('ocr')">Kaydet</button>
-        <button class="btn sm ghost" onclick="document.getElementById('ocrText').value=''">Temizle</button>
+        <button class="btn sm ghost" onclick="saveNote('ocr',true)">Çek olarak kaydet</button>
+        <button class="btn sm ghost" onclick="document.getElementById('ocrText').value='';OCR_KAREKOD=false">Temizle</button>
       </div>
     </div>
   </section>
@@ -373,8 +374,9 @@
         <label>Ne zaman geri alınacak (opsiyonel)</label>
         <input id="loanVade" type="date">
         <button class="btn" style="margin-top:16px" onclick="addLoan()">Ekle</button>
-        <div class="muted" style="margin-top:10px">Sesli de girebilirsin:
-          "Mehmet'e 10 bin verildi 15 gün sonra alınacak".</div>
+        <div class="muted" style="margin-top:10px">Çek sesli de girilir:
+          "Ali'den 50 bin çek aldım 26 Eylül vadeli". Çek olmayan borç ve
+          alacaklar Tablo'ya ve Rapor'a işlenir.</div>
       </div>
       <div id="loanList"></div>
     </div>
@@ -455,25 +457,29 @@
   </div>
 </div>
 
-<!-- Verilen borç onay penceresi. Cümlede hem verme hem geri dönüş fiili
-     geçtiğinde açılır; kişi, tutar ve vade düzeltilebilir. -->
-<div id="borcKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
+<!-- Çek penceresi. Sesli kayıtta "çek" geçince ya da çek görseli
+     okununca açılır; kayıt Tablo'ya değil Çekler ekranına gider. -->
+<div id="cekKat" style="display:none;position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:60;align-items:flex-end;justify-content:center">
   <div style="background:#fffdf8;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto">
-    <div style="font-weight:700;font-size:16px">Borç verme kaydı</div>
-    <div class="muted" id="borcDuyulan" style="margin:4px 0 12px"></div>
-    <label for="borcKisi">Kime verildi</label>
-    <input id="borcKisi" autocomplete="off" placeholder="Örn: Mehmet Güner">
-    <label for="borcTutar">Tutar (₺)</label>
-    <input id="borcTutar" inputmode="decimal">
-    <label for="borcVade">Ne zaman geri alınacak</label>
-    <input id="borcVade" type="date">
-    <div class="muted" id="borcUyari" style="min-height:18px;margin-top:7px"></div>
+    <div style="font-weight:700;font-size:16px">Çek kaydı</div>
+    <div class="muted" id="cekDuyulan" style="margin:4px 0 12px;max-height:72px;overflow:auto"></div>
+    <div class="row">
+      <button class="btn sm ghost" id="cekYonBorc" style="flex:1" onclick="cekYonSec('borc')">Ödeyeceğim (borç)</button>
+      <button class="btn sm ghost" id="cekYonAlacak" style="flex:1" onclick="cekYonSec('alacak')">Tahsil edeceğim (alacak)</button>
+    </div>
+    <label for="cekKisi" id="cekKisiEtiket">Kime / kimden</label>
+    <input id="cekKisi" autocomplete="off" placeholder="Örn: Mehmet Güner">
+    <label for="cekTutar">Tutar (₺)</label>
+    <input id="cekTutar" inputmode="decimal">
+    <label for="cekVade">Vade tarihi</label>
+    <input id="cekVade" type="date">
+    <div class="muted" id="cekUyari" style="min-height:18px;margin-top:7px"></div>
     <div class="row" style="margin-top:8px">
-      <button class="btn" style="flex:1" onclick="borcOnayla()">Alacak olarak kaydet</button>
+      <button class="btn" style="flex:1" onclick="cekOnayla()">Çeklere kaydet</button>
     </div>
     <div class="row" style="margin-top:8px">
-      <button class="btn sm ghost" style="flex:1" onclick="borcDegil()">Bu bir gider, normal kaydet</button>
-      <button class="btn sm ghost" onclick="borcVazgec()">Vazgeç</button>
+      <button class="btn sm ghost" style="flex:1" onclick="cekDegil()">Çek değil, tabloya kaydet</button>
+      <button class="btn sm ghost" onclick="cekVazgec()">Vazgeç</button>
     </div>
   </div>
 </div>
@@ -776,42 +782,78 @@ function applyRole(){
   document.body.classList.toggle('mudur',!patron);
 }
 
-/* ---------- VERİLEN BORÇ ONAYI ----------
-   Üç sonuç döner: {tur:'borc',...} alacak olarak kaydedilsin, {tur:'gider'}
-   normal kayıt akışına devam edilsin, null vazgeçildi. */
-let borcCoz=null;
-function borcSor(loan,duyulan){
+/* ---------- ÇEK ONAYI ----------
+   Eskiden "verildi … alınacak" gibi her cümle verilen borç sayılıp Çekler
+   ekranına gidiyordu; çekle ilgisi olmayan borç ve alacaklar tablodan ve
+   rapordan düşüyordu. Artık Çekler'e yalnız çek gider: cümlede "çek"
+   geçerse ya da çek görseli okunursa bu pencere açılır. Gerisi normal
+   onaydan geçip Tablo'ya ve Rapor'a işlenir.
+   Üç sonuç: {yon,kisi,tutar,vade} çek olarak kaydet, {tur:'normal'} tabloya
+   kaydet, null vazgeç. */
+let cekCoz=null, cekYon='';
+function cekSor(c,duyulan){
   return new Promise(res=>{
-    const kat=document.getElementById('borcKat');
-    if(!kat){res({tur:'gider'});return;}
-    borcCoz=res;
-    document.getElementById('borcDuyulan').textContent='Duyulan: '+duyulan;
-    document.getElementById('borcKisi').value=(loan.kisi||'').replace(/['’]?[ea]$/,'');
-    document.getElementById('borcTutar').value=loan.tutar;
-    document.getElementById('borcVade').value=loan.vade||'';
-    /* Vade cümleden çıkmadıysa söyle: sonradan fark edilen boş vade,
-       takip edilemeyen bir alacak demek. */
-    document.getElementById('borcUyari').textContent=loan.vade?''
-      :'Vade cümleden anlaşılmadı — elle seçebilirsin.';
+    const kat=document.getElementById('cekKat');
+    if(!kat){res({tur:'normal'});return;}
+    cekCoz=res;
+    document.getElementById('cekDuyulan').textContent=duyulan?('Okunan: '+duyulan):'';
+    document.getElementById('cekKisi').value=c.kisi||'';
+    document.getElementById('cekTutar').value=c.tutar||'';
+    document.getElementById('cekVade').value=c.vade||'';
+    document.getElementById('cekUyari').textContent='';
+    cekYonSec(c.yon||'');
     kat.style.display='flex';
   });
 }
-function borcKapat(sonuc){
-  const kat=document.getElementById('borcKat'); if(kat)kat.style.display='none';
-  const f=borcCoz; borcCoz=null; if(f)f(sonuc);
+function cekYonSec(y){
+  cekYon=y;
+  document.getElementById('cekYonBorc').classList.toggle('ghost',y!=='borc');
+  document.getElementById('cekYonAlacak').classList.toggle('ghost',y!=='alacak');
+  document.getElementById('cekKisiEtiket').textContent=
+    y==='borc'?'Kime verildi':y==='alacak'?'Kimden alındı':'Kime / kimden';
+  document.getElementById('cekUyari').textContent='';
 }
-function borcOnayla(){
-  const kisi=(document.getElementById('borcKisi').value||'').trim();
-  const tutar=toNumber(document.getElementById('borcTutar').value||'');
-  const uy=document.getElementById('borcUyari');
-  if(!kisi){uy.textContent='Kime verildiğini yaz.';return;}
+function cekKapat(sonuc){
+  const kat=document.getElementById('cekKat'); if(kat)kat.style.display='none';
+  const f=cekCoz; cekCoz=null; if(f)f(sonuc);
+}
+function cekOnayla(){
+  const kisi=(document.getElementById('cekKisi').value||'').trim();
+  const tutar=toNumber(document.getElementById('cekTutar').value||'');
+  const vade=document.getElementById('cekVade').value||'';
+  const uy=document.getElementById('cekUyari');
+  if(!cekYon){uy.textContent='Ödeyecek misin, tahsil mi edeceksin? Birini seç.';return;}
+  if(!kisi){uy.textContent=cekYon==='borc'?'Kime verildiğini yaz.':'Kimden alındığını yaz.';return;}
   if(!(tutar>0)){uy.textContent='Tutar sıfırdan büyük olmalı.';return;}
-  borcKapat({tur:'borc',kisi:kisi,tutar:tutar,vade:document.getElementById('borcVade').value||''});
+  if(!vade){uy.textContent='Vade tarihini seç — çek vadesinde hatırlatılır.';return;}
+  cekKapat({yon:cekYon,kisi:kisi,tutar:tutar,vade:vade});
 }
-function borcDegil(){ borcKapat({tur:'gider'}); }
-function borcVazgec(){
+function cekDegil(){ cekKapat({tur:'normal'}); }
+function cekVazgec(){
   if(!confirm('Bu kayıt hiç oluşmayacak. Vazgeçilsin mi?'))return;
-  borcKapat(null);
+  cekKapat(null);
+}
+/* Çeki Çekler ekranına yazar: ödeyeceğimiz çek "Ödeyeceklerim"e, tahsil
+   edeceğimiz çek "Alacaklarım"a. Müdür girdiyse patrona da gönderilir —
+   Çekler ekranı müdüre kapalı, yoksa kimse görmezdi. */
+async function cekKaydet(c){
+  const id=Date.now(), kimden=CURRENT?CURRENT.ad:'';
+  if(c.yon==='borc'){
+    PAYMENTS.push({id:id,title:'Çek · '+c.kisi,amount:money(c.tutar),dueDate:c.vade,cek:true,kimden:kimden});
+    PAYMENTS.sort((x,y)=>x.dueDate.localeCompare(y.dueDate));
+    await Store.set('payments',PAYMENTS);
+    renderPayments();
+  }else{
+    LOANS.unshift({id:id,kisi:c.kisi,tutar:c.tutar,verildi:todayStr(),vade:c.vade,
+      alindi:false,alindiAt:'',kimden:kimden,cek:true});
+    await Store.set('loans',LOANS);
+    renderLoans();
+  }
+  checkReminders();
+  if(CURRENT&&!isPatron())
+    await buluta({id:id,type:'cek',createdAt:new Date().toISOString(),
+      text:c.kisi+' '+c.tutar,yon:c.yon,kisi:c.kisi,tutar:c.tutar,vade:c.vade,
+      mudur:CURRENT.ad,mudurId:CURRENT.mudurId||''});
 }
 async function borcKaydet(b){
   const l={id:Date.now(),kisi:b.kisi,tutar:b.tutar,
@@ -1067,11 +1109,13 @@ function mergeCloudNotes(cloudNotes){
   // yerel + bulut birleştir (id'ye göre tekilleştir)
   const map={};
   NOTES.forEach(n=>map[n.id]=n);
-  let yonDegisti=false, alacakGeldi=false;
+  let yonDegisti=false, alacakGeldi=false, odemeGeldi=false;
   cloudNotes.slice().sort((a,b)=>(a&&a.id||0)-(b&&b.id||0)).forEach(n=>{
     if(!n||!n.id)return;
     /* Müdürün verdiği borç: kayıt değil, alacak listesine gider. */
-    if(n.type==='alacak'){ if(buluttanAlacak(n))alacakGeldi=true; return; }
+    if(n.type==='alacak'||(n.type==='cek'&&n.yon==='alacak')){ if(buluttanAlacak(n))alacakGeldi=true; return; }
+    /* Müdürün verdiği çek: patronun "Ödeyeceklerim" listesine. */
+    if(n.type==='cek'){ if(buluttanCekBorc(n))odemeGeldi=true; return; }
     /* Patronun bu cihazda sildiği şey buluttan geri gelmesin. */
     const t=silineniUygula(n);
     if(t)map[n.id]=t; else delete map[n.id];
@@ -1088,7 +1132,9 @@ function mergeCloudNotes(cloudNotes){
   NOTES=Object.values(map).sort((a,b)=>b.id-a.id);
   Store.set('notes',NOTES);
   if(yonDegisti)Store.set('serbestYon',SERBEST_YON);
-  if(alacakGeldi){ Store.set('loans',LOANS); renderLoans(); checkReminders(); }
+  if(alacakGeldi){ Store.set('loans',LOANS); renderLoans(); }
+  if(odemeGeldi){ Store.set('payments',PAYMENTS); renderPayments(); }
+  if(alacakGeldi||odemeGeldi)checkReminders();
   /* Müdür kaydı bulutta göründüğü anda şantiye ekranı da tazelensin —
      "anlık takip" bunu gerektiriyor. */
   renderTable(); renderSites(); renderFactory(); renderPitch();
@@ -1205,7 +1251,16 @@ function buluttanAlacak(n){
   LOANS.unshift({id:n.id,kisi:String(n.kisi||'').slice(0,80),tutar:tutar,
     verildi:/^\d{4}-\d{2}-\d{2}$/.test(n.verildi||'')?n.verildi:String(n.createdAt||'').slice(0,10),
     vade:/^\d{4}-\d{2}-\d{2}$/.test(n.vade||'')?n.vade:'',
-    alindi:false,alindiAt:'',kimden:String(n.mudur||'')});
+    alindi:false,alindiAt:'',kimden:String(n.mudur||''),cek:n.type==='cek'});
+  return true;
+}
+function buluttanCekBorc(n){
+  if(SILINEN[n.id]==='*'||PAYMENTS.some(p=>p.id===n.id))return false;
+  const tutar=Number(n.tutar);
+  if(!(tutar>0)||!/^\d{4}-\d{2}-\d{2}$/.test(n.vade||''))return false;
+  PAYMENTS.push({id:n.id,title:'Çek · '+String(n.kisi||'').slice(0,80),amount:money(tutar),
+    dueDate:n.vade,cek:true,kimden:String(n.mudur||'')});
+  PAYMENTS.sort((x,y)=>x.dueDate.localeCompare(y.dueDate));
   return true;
 }
 
@@ -1388,17 +1443,18 @@ async function autoSaveVoice(){
       iptal('Tutar bulunamadı','Duyulan: '+escapeHtml(txt)+' — içinde rakam geçmiyor.');
       return;
     }
-    /* Borç verme cümlesi mi? Öyleyse gider değil alacaktır; ayrı kaydedilir
-       ve tablo toplamlarına girmez. Kişi "gider" derse normal akışa döner. */
-    const loan=detectLoan(txt);
-    if(loan){
-      const kar=await borcSor(loan,txt);
-      if(!kar){ iptal('Kaydedilmedi','Metin duruyor, tekrar kaydedebilirsin.'); return; }
-      if(kar.tur==='borc'){
-        await borcKaydet(kar);
+    /* Çek cümlesi mi? Öyleyse Çekler ekranına gider. Diğer bütün borç ve
+       alacaklar aşağıdaki normal onaydan geçip Tablo'ya ve Rapor'a işlenir.
+       Kişi "çek değil" derse normal akışa döner. */
+    const cek=cekCumlesi(txt);
+    if(cek){
+      const k=await cekSor(cek,txt);
+      if(!k){ iptal('Kaydedilmedi','Metin duruyor, tekrar kaydedebilirsin.'); return; }
+      if(!k.tur){
+        await cekKaydet(k);
         document.getElementById('voiceText').value='';
-        iptal('Alacak kaydedildi',escapeHtml(kar.kisi)+' · '+money(kar.tutar)
-             +(kar.vade?' · vade '+fmtDate(kar.vade):' · vade yok'));
+        iptal('Çek kaydedildi',(k.yon==='borc'?'Ödenecek · ':'Tahsil edilecek · ')
+             +escapeHtml(k.kisi)+' · '+money(k.tutar)+' · vade '+fmtDate(k.vade));
         return;
       }
     }
@@ -1484,6 +1540,15 @@ function fileOCR(ev){
 async function runOCR(dataURL){
   const st=document.getElementById('camStatus');
   st.textContent='Metin okunuyor… (birkaç saniye)';
+  /* Karekod çekin en güvenilir işareti (2017'den beri zorunlu). Tarayıcı
+     destekliyorsa (Android Chrome) görselde aranır; yoksa sözcüklere bakılır. */
+  OCR_KAREKOD=false;
+  try{
+    if('BarcodeDetector'in window){
+      const img=await createImageBitmap(await (await fetch(dataURL)).blob());
+      OCR_KAREKOD=(await new BarcodeDetector({formats:['qr_code']}).detect(img)).length>0;
+    }
+  }catch(e){}
   try{
     const worker=await Tesseract.createWorker('tur');
     const {data:{text}}=await worker.recognize(dataURL);
@@ -1757,25 +1822,71 @@ const SURE_KALIBI=new RegExp(
   +'\\s*(?:'+SURE_BIRIMI+')(?!['+HARF+'])'
   +'(?:\\s*(?:sonra|önce|once|içinde|icinde|içerisinde|icerisinde|vadeli|vade))?'
   ,'gi');
-/* ---------- VERİLEN BORÇ (ALACAK) ALGILAMA ----------
-   "Mehmet'e 10 milyon verildi 15 gün sonra alınacak" gibi cümleler gider
-   değil, alacaktır: para çıkmıştır ama geri gelecektir. Bunlar tabloya gider
-   diye yazılınca hem gideri şişiriyor hem kimin ne zaman ödeyeceği hiçbir
-   yerde kalmıyordu.
-
-   İki ayrı yol var, çünkü tek kural ikisini birden tutmuyor:
-
-   1) "borç verildi", "ödünç verdim" — borç sözcüğü açıkça geçiyorsa tek
-      başına yeter. Geri dönüş cümlesi şart koşulunca "Mehmet'e 5 milyon
-      borç verildi" kaçıyor ve gider diye tabloya düşüyordu.
-   2) Yalnız "verildi/verdim" varsa geri dönüş fiili de aranır. Aksi hâlde
-      "işçi ödemesi verildi" alacak sanılır, gerçek gider tablodan düşerdi.
-
-   "bana/bize borç verecek" tersidir — parayı biz alıyoruz, alacak değil. */
-const BORC_ACIK=/(bor[çc]|[öo]d[üu]n[çc])\s*ver/i;
-const BORC_VERME=/veril(di|ecek)|verdim|verd[iı]k/i;
-const BORC_DONUS=/(geri\s*)?(al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|verecek|[öo]deyecek|[öo]deyecekler|iade)/i;
-const BORC_BIZE=/\b(bana|bize|bize\s*ait)\b/i;
+/* ---------- ÇEK ALGILAMA ----------
+   Çekler ekranına yalnız çek gider. Cümlede "çek" sözcüğü (çeki, çekle,
+   çekler, çekten…) geçiyorsa çek sayılır; "para çekti", "gelecek",
+   "ödeyecek" gibi sözcükler sayılmaz (kelime sınırına bakılıyor).
+   Yön tahmin edilir, pencerede değiştirilebilir:
+     bize/bana … verdi, aldım, tahsil → alacak (tahsil edeceğiz)
+     verdim, verildi, yazdım, kestim, ödenecek → borç (ödeyeceğiz) */
+const CEK_KELIMESI=/(^|[^a-zçğıöşü])(çek|cek)(i|ı|e|le|ler|leri|lerin|ten|ini|in|im|imiz)?(?![a-zçğıöşü])/;
+const CEK_BIZE=/(^|[^a-zçğıöşü])(bize|bana)(?![a-zçğıöşü])/;
+const CEK_BORC=/verdim|verdik|verildi|yazdım|yazdik|yazdık|kestim|kestik|keşide|keside|ödeyeceğ|odeyeceg|ödenecek|odenecek|ödeme/;
+const CEK_ALACAK=/aldım|aldik|aldık|alındı|alindi|geldi|tahsil|verecek|alacağ|alacag|müşteri|musteri/;
+/* Kişi adı: ses tanıma özel adı kesme işaretiyle yazıyor ("Mehmet'e",
+   "Ali'den"); "Mehmet bize …" kalıbı da yakalanır. Bulunamazsa boş kalır,
+   pencerede yazılır. */
+function cekKisi(text){
+  const t=String(text);
+  const m=t.match(/([A-Za-zÇĞİÖŞÜçğıöşü]{2,})['’](?:ye|ya|e|a|den|dan|ten|tan|nin|nın|in|ın)(?![a-zçğıöşü])/)
+        ||t.match(/([A-Za-zÇĞİÖŞÜçğıöşü]{2,})\s+(?:bize|bana)(?![a-zçğıöşü])/i);
+  if(!m)return '';
+  const ad=m[1];
+  return ad.charAt(0).toLocaleUpperCase('tr-TR')+ad.slice(1);
+}
+function cekCumlesi(text){
+  const t=trLower(String(text));
+  if(!CEK_KELIMESI.test(t))return null;
+  const items=parseItems(text);
+  const en=items.length?items.reduce((a,b)=>b.amount>a.amount?b:a):null;
+  let yon='';
+  if(CEK_BIZE.test(t))yon='alacak';
+  else if(CEK_BORC.test(t))yon='borc';
+  else if(CEK_ALACAK.test(t))yon='alacak';
+  return {yon:yon,kisi:cekKisi(text),tutar:en?en.amount:0,vade:vadeCoz(text)};
+}
+/* Çek görseli: okunan metinde çeke özgü sözcükler var mı? Türkiye'de 2017'den
+   beri basılan çeklerde karekod zorunlu; görselde karekod bulunduysa
+   (OCR_KAREKOD) o da çek sayılır. */
+const CEK_GORSEL=/(^|[^a-zçğıöşü])(çek|cek)(?![a-zçğıöşü])|keşide|keside|kesıde|hamiline|ödeyiniz|odeyiniz|karekod/;
+let OCR_KAREKOD=false;
+function cekGorselMi(text){ return OCR_KAREKOD||CEK_GORSEL.test(trLower(String(text))); }
+/* Görselden tutar ve vade: biçimli tutarların (50.000,00) en büyüğü, tarihlerin
+   en geç olanı (keşide tarihi = vade). Yanlış okunabilir; pencerede düzeltilir. */
+function cekGorselCoz(text){
+  const t=String(text);
+  /* Önce biçimli tutarlar (125.000,00): seri no, hesap no gibi düz
+     rakam dizileri tutar sanılmasın. Biçimli yoksa düz sayılara bakılır. */
+  const enBuyuk=(liste,yilHaric)=>liste.reduce((en,h)=>{
+    const n=toNumber(h.replace(/\s/g,'.'));
+    return n&&n<1e9&&!(yilHaric&&/^(19|20)\d\d$/.test(h))&&n>en?n:en;
+  },0);
+  const bicimli=t.match(/(?<!\d)\d{1,3}(?:[.\s]\d{3})+(?:,\d{1,2})?(?!\d)|(?<!\d)\d{1,7},\d{2}(?!\d)/g)||[];
+  let tutar=enBuyuk(bicimli,false);
+  if(!tutar)tutar=enBuyuk(t.match(/(?<![\d.,])\d{3,7}(?![\d.,\/-])/g)||[],true);
+  let vade='';
+  const re=/(\d{1,2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{4})/g; let m;
+  while((m=re.exec(t))!==null){
+    const g=+m[1], a=+m[2], y=+m[3];
+    if(g<1||g>31||a<1||a>12||y<2000||y>2100)continue;
+    const iso=y+'-'+pad(a)+'-'+pad(g);
+    if(iso>vade)vade=iso;
+  }
+  /* Yön ve kişi tahmin edilmez: her çekte "keşide" yazar, yön sözcüklerinden
+     bir şey çıkmaz; elimizdeki çeki verecek miyiz, tahsil mi edeceğiz,
+     kişi seçer. */
+  return {yon:'',kisi:'',tutar:tutar,vade:vade};
+}
 const AY_SIRA={ocak:0,'şubat':1,subat:1,mart:2,nisan:3,'mayıs':4,mayis:4,haziran:5,
   temmuz:6,'ağustos':7,agustos:7,'eylül':8,eylul:8,ekim:9,'kasım':10,kasim:10,'aralık':11,aralik:11};
 function isoGun(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
@@ -1821,17 +1932,6 @@ function vadeCoz(text,bugun){
     }
   }
   return '';
-}
-function detectLoan(text){
-  if(BORC_BIZE.test(text))return null;
-  const borcMu=BORC_ACIK.test(text)||(BORC_VERME.test(text)&&BORC_DONUS.test(text));
-  if(!borcMu)return null;
-  const items=parseItems(text);
-  if(!items.length)return null;
-  // Cümlede birden çok sayı varsa en büyüğü tutardır (diğerleri artık ayıklanmış olmalı).
-  const en=items.reduce((a,b)=>b.amount>a.amount?b:a);
-  if(!(en.amount>0))return null;
-  return {kisi:(en.category||en.known||'').trim(),tutar:en.amount,vade:vadeCoz(text)};
 }
 
 function parseItems(text){
@@ -1913,24 +2013,31 @@ function pad(n){return String(n).padStart(2,'0')}
 function todayStr(d=new Date()){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
 function fmt(iso){const d=new Date(iso);return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
 
-async function saveNote(type){
+/* zorlaCek: kamera ekranındaki "Çek olarak kaydet" düğmesi. Okunan metin
+   çek gibi görünmese de (OCR sözcükleri kaçırabilir) çek penceresi açılır. */
+async function saveNote(type,zorlaCek){
   const el=type==='voice'?'voiceText':'ocrText';
   const txt=document.getElementById(el).value.trim();
-  if(!txt){alert('Kaydedilecek metin yok.');return;}
-  const cozum=parseItems(txt);
-  if(!cozum.length){alert('Metinde tutar bulunamadı.');return;}
-  const loan=detectLoan(txt);
-  if(loan){
-    const kar=await borcSor(loan,txt);
-    if(!kar)return;
-    if(kar.tur==='borc'){
-      await borcKaydet(kar);
+  if(!txt&&!zorlaCek){alert('Kaydedilecek metin yok.');return;}
+  /* Çek mi? Sesli/yazılı metinde "çek" geçiyorsa; görselde ayrıca karekod
+     ya da çeke özgü sözcükler (keşide, hamiline, ödeyiniz) varsa. */
+  const cek=zorlaCek?cekGorselCoz(txt)
+           :type==='ocr'&&cekGorselMi(txt)?cekGorselCoz(txt)
+           :cekCumlesi(txt);
+  if(cek){
+    const k=await cekSor(cek,txt);
+    if(!k)return;
+    if(!k.tur){
+      await cekKaydet(k);
       document.getElementById(el).value='';
-      alert('✅ Alacak kaydedildi:\n'+kar.kisi+' · '+money(kar.tutar)
-           +(kar.vade?'\nVade: '+fmtDate(kar.vade):'\nVade yok'));
+      if(type==='ocr')OCR_KAREKOD=false;
+      alert('✅ Çek kaydedildi ('+(k.yon==='borc'?'Ödeyeceklerim':'Alacaklarım')+'):\n'
+           +k.kisi+' · '+money(k.tutar)+'\nVade: '+fmtDate(k.vade));
       return;
     }
   }
+  const cozum=parseItems(txt);
+  if(!cozum.length){alert('Metinde tutar bulunamadı.');return;}
   const onaylanan=await onaySor(cozum,txt);
   if(!onaylanan)return;
   const items=await onaydanKalemler(onaylanan);
@@ -2517,7 +2624,7 @@ function renderPayments(){
     const days=daysUntil(p.dueDate);
     let tag=days<0?'<span class="pill" style="color:#b23b34">Geçti</span>':days===0?'<span class="pill" style="color:#a9761e">Bugün</span>':days===1?'<span class="pill" style="color:#a9761e">Yarın</span>':`<span class="pill">${days} gün</span>`;
     return `<div class="card"><b>${escapeHtml(p.title)}</b> ${tag}
-      <div class="muted" style="margin-top:5px">${p.amount?escapeHtml(p.amount)+' · ':''}${fmtDate(p.dueDate)}</div>
+      <div class="muted" style="margin-top:5px">${p.amount?escapeHtml(p.amount)+' · ':''}${fmtDate(p.dueDate)}${p.kimden&&CURRENT&&p.kimden!==CURRENT.ad?' · '+escapeHtml(p.kimden)+' girdi':''}</div>
       <button class="btn sm ghost" style="margin-top:12px" onclick="delPay(${p.id})">Sil</button></div>`;
   }).join('');
 }
@@ -2527,6 +2634,7 @@ async function delPay(id){
   const p=PAYMENTS.find(x=>x.id===id); if(!p)return;
   if(!confirm('"'+p.title+'" çek kaydı silinsin mi?'))return;
   PAYMENTS=PAYMENTS.filter(x=>x.id!==id);
+  await silindiIsaretle(id);          // müdürden geldiyse buluttan geri gelmesin
   await Store.set('payments',PAYMENTS); renderPayments();
 }
 
@@ -2945,7 +3053,7 @@ async function loanSil(id){
 function renderLoans(){
   const box=document.getElementById('loanList');
   if(!box)return;
-  if(!LOANS.length){box.innerHTML='<div class="empty">Verilen borç kaydı yok.<br>Sesli girebilir ya da yukarıdaki formu kullanabilirsin.</div>';return;}
+  if(!LOANS.length){box.innerHTML='<div class="empty">Alacak kaydı yok.<br>Çeki sesle ya da fotoğrafla girebilir, yukarıdaki formu da kullanabilirsin.</div>';return;}
   const acik=LOANS.filter(l=>!l.alindi), kapali=LOANS.filter(l=>l.alindi);
   const topla=a=>a.reduce((x,y)=>x+(y.tutar||0),0);
   /* Vadesi geçenler ayrı sayılıyor: asıl takip edilmesi gereken onlar. */
@@ -2970,7 +3078,8 @@ function renderLoans(){
     const renk=gecti?'var(--danger)':'var(--ink)';
     return '<div style="padding:11px 0;border-top:1px solid var(--line)">'
       +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
-      +'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escapeHtml(l.kisi)+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escapeHtml(l.kisi)
+        +(l.cek?' <span class="pill">çek</span>':'')+'</div>'
       +(l.vade
         ? '<div class="para" style="font-size:13px;font-weight:600;margin-top:2px;color:'+renk+'">'
           +'Vade '+fmtDate(l.vade)+'</div>'
@@ -3028,7 +3137,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.5";
+const APP_VERSION="2026-10-09.6";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

@@ -283,40 +283,58 @@ try{
   check("rakamsız cümlede onay penceresi açılmıyor",!(await page.isVisible("#onayKat")));
   check("rakamsız cümle kaydedilmiyor",await page.evaluate(n=>NOTES.length===n,oncekiN2));
 
-  /* --- verilen borç (alacak) takibi ---
-     "verildi ... alınacak" gibi cümleler gider değil alacaktır: ayrı
-     kaydedilir, tablo toplamlarına girmez, vadesi takip edilir. */
+  /* --- çek mi, değil mi ---
+     Çekler ekranına yalnız çek gider. Eskiden "verildi … alınacak" geçen her
+     cümle oraya gidiyor, tablo ve rapordan düşüyordu. */
   await page.evaluate(()=>go('voice'));
+  const notOnce=await page.evaluate(()=>NOTES.length);
   page.evaluate(()=>{
     document.getElementById('voiceText').value="Mehmet'e 10 milyon verildi 15 gün sonra alınacak";
     saveNote('voice');
   });
-  await page.waitForSelector("#borcKat",{state:"visible",timeout:5000});
-  check("borç verme cümlesi algılanıyor",await page.isVisible("#borcKat"));
-  const borcOn=await page.evaluate(()=>({
-    kisi:document.getElementById('borcKisi').value,
-    tutar:document.getElementById('borcTutar').value,
-    vade:document.getElementById('borcVade').value}));
-  check("kişi, tutar ve vade önceden dolduruluyor",
-    borcOn.kisi.includes("Mehmet")&&borcOn.tutar==="10000000"&&/^\d{4}-\d{2}-\d{2}$/.test(borcOn.vade),
-    JSON.stringify(borcOn));
-  const notOnce=await page.evaluate(()=>NOTES.length);
-  await page.evaluate(()=>borcOnayla());
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  check("çek olmayan borç normal onaya gidiyor",
+    await page.isVisible("#onayKat")&&!(await page.isVisible("#cekKat")));
+  await page.evaluate(()=>onayla());
   await page.waitForTimeout(300);
-  check("alacak kaydedildi",await page.evaluate(()=>LOANS.length===1&&LOANS[0].tutar===10000000));
-  check("alacak tablo kaydı oluşturmuyor",await page.evaluate(n=>NOTES.length===n,notOnce));
+  check("çek olmayan borç tabloya işleniyor, alacaklara gitmiyor",
+    await page.evaluate(n=>NOTES.length===n+1&&LOANS.length===0,notOnce));
   await page.evaluate(()=>{go('notes');renderTable();});
   await page.waitForTimeout(200);
-  check("alacak borç toplamına girmiyor",
-    !(await page.textContent("#tableBox")).includes("10.000.000"));
+  check("çek olmayan borç tabloda görünüyor",
+    (await page.textContent("#tableBox")).includes("10.000.000"));
+  /* Sonraki toplam testleri bu kayda göre yazılmadı; kaldır. */
+  await page.evaluate(async n=>{ NOTES=NOTES.filter(x=>x.id!==NOTES[0].id); await Store.set('notes',NOTES); renderTable(); },notOnce);
+
+  /* Tahsil edilecek çek → Alacaklarım */
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{
+    document.getElementById('voiceText').value="Ali'den 120 bin çek aldım 26 Eylül vadeli";
+    saveNote('voice');
+  });
+  await page.waitForSelector("#cekKat",{state:"visible",timeout:5000});
+  check("çek cümlesi çek penceresini açıyor",await page.isVisible("#cekKat"));
+  const cekOn=await page.evaluate(()=>({
+    kisi:document.getElementById('cekKisi').value,
+    tutar:document.getElementById('cekTutar').value,
+    vade:document.getElementById('cekVade').value,
+    alacak:!document.getElementById('cekYonAlacak').classList.contains('ghost')}));
+  check("çekte kişi, tutar, vade ve yön önceden dolduruluyor",
+    cekOn.kisi==="Ali"&&cekOn.tutar==="120000"&&/^\d{4}-09-26$/.test(cekOn.vade)&&cekOn.alacak,
+    JSON.stringify(cekOn));
+  const notOnce2=await page.evaluate(()=>NOTES.length);
+  await page.evaluate(()=>cekOnayla());
+  await page.waitForTimeout(300);
+  check("tahsil edilecek çek Alacaklarım'a kaydedildi",
+    await page.evaluate(()=>LOANS.length===1&&LOANS[0].tutar===120000&&LOANS[0].cek===true));
+  check("çek tablo kaydı oluşturmuyor",await page.evaluate(n=>NOTES.length===n,notOnce2));
 
   await page.evaluate(()=>{go('payments');payTab('al');});
   await page.waitForTimeout(250);
   const alEkran=await page.textContent("#loanList");
   check("alacak ekranında kişi ve tutar var",
-    alEkran.includes("Mehmet")&&alEkran.includes("10.000.000"),alEkran.slice(0,140));
+    alEkran.includes("Ali")&&alEkran.includes("120.000"),alEkran.slice(0,140));
   check("dışarıdaki toplam gösteriliyor",alEkran.includes("DIŞARIDA"));
-  /* Öne çıkan tarih vade olmalı; kaydın alındığı tarih önemsiz. */
   check("vade tarihi öne çıkıyor",alEkran.includes("Vade "),alEkran.slice(0,200));
   /* Vadesi olmayan alacak takip edilemez: uyarı ve elle vade girme yolu. */
   await page.evaluate(async()=>{
@@ -345,25 +363,59 @@ try{
   check("geri alınan bekleyenden çıkıyor",
     (await page.textContent("#loanList")).includes("Geri alınanlar"));
 
-  /* Gider olduğunu söyleyince normal akışa dönmeli. */
+  /* Ödeyeceğimiz çek → Ödeyeceklerim */
   await page.evaluate(()=>go('voice'));
   page.evaluate(()=>{
-    document.getElementById('voiceText').value="Ali'ye 3 bin verildi 5 gün sonra alınacak";
+    document.getElementById('voiceText').value="Veli'ye 50 bin çek verdim 15 gün sonra";
     saveNote('voice');
   });
-  await page.waitForSelector("#borcKat",{state:"visible",timeout:5000});
-  await page.evaluate(()=>borcDegil());
+  await page.waitForSelector("#cekKat",{state:"visible",timeout:5000});
+  const odeOnce=await page.evaluate(()=>PAYMENTS.length);
+  await page.evaluate(()=>cekOnayla());
+  await page.waitForTimeout(300);
+  check("verilen çek Ödeyeceklerim'e kaydedildi",
+    await page.evaluate(n=>PAYMENTS.length===n+1&&PAYMENTS.some(p=>p.cek&&p.title.includes('Veli')&&payAmountNum(p)===50000),odeOnce));
+
+  /* "Çek değil" deyince normal akışa dönmeli. */
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{
+    document.getElementById('voiceText').value="çek defteri 300";
+    saveNote('voice');
+  });
+  await page.waitForSelector("#cekKat",{state:"visible",timeout:5000});
+  await page.evaluate(()=>cekDegil());
   await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
-  check("gider denince normal onay ekranına dönüyor",await page.isVisible("#onayKat"));
+  check("çek değil denince normal onay ekranına dönüyor",await page.isVisible("#onayKat"));
   await page.evaluate(()=>onayla());
   await page.waitForTimeout(250);
-  check("gider olarak kaydedilince alacak oluşmuyor",
-    await page.evaluate(()=>LOANS.length===1));
+  check("çek değil denince Çekler'e bir şey eklenmiyor",
+    await page.evaluate(n=>LOANS.length===1&&PAYMENTS.length===n+1,odeOnce));
 
-  /* Sıradan gider cümlesi borç penceresini açmamalı. */
+  /* Çek görseli: okunan metinden tutar ve vade gelir; yönü kişi seçer. */
+  await page.evaluate(()=>{
+    document.getElementById('ocrText').value="ÇEK\nKeşide Tarihi: 15.11.2030\n#125.000,00# TL ödeyiniz\nSeri No: 1234567";
+    saveNote('ocr');
+  });
+  await page.waitForSelector("#cekKat",{state:"visible",timeout:5000});
+  const gorsel=await page.evaluate(()=>({tutar:document.getElementById('cekTutar').value,
+                                         vade:document.getElementById('cekVade').value}));
+  check("çek görseli tanınıyor, tutar ve vade dolduruluyor",
+    gorsel.tutar==="125000"&&gorsel.vade==="2030-11-15",JSON.stringify(gorsel));
+  await page.evaluate(()=>cekOnayla());
+  await page.waitForTimeout(200);
+  check("görselde yön seçilmeden kaydedilmiyor",
+    (await page.textContent("#cekUyari")).includes("Birini seç"));
+  await page.evaluate(()=>{cekYonSec('alacak');document.getElementById('cekKisi').value='Malatya Yapı';cekOnayla();});
+  await page.waitForTimeout(300);
+  check("çek görseli Alacaklarım'a kaydedildi",
+    await page.evaluate(()=>LOANS.some(l=>l.cek&&l.tutar===125000&&l.vade==='2030-11-15')));
+  /* Sonraki testler tek alacak bekliyor. */
+  await page.evaluate(async()=>{ LOANS=LOANS.filter(l=>l.tutar!==125000); await Store.set('loans',LOANS); });
+
+  /* Sıradan gider cümlesi çek penceresini açmamalı. */
   await page.evaluate(()=>{document.getElementById('voiceText').value='yakıt 900';saveNote('voice');});
   await page.waitForTimeout(400);
-  check("sıradan gider borç sanılmıyor",!(await page.isVisible("#borcKat")));
+  check("sıradan gider çek sanılmıyor",!(await page.isVisible("#cekKat")));
   await onayVer();
   await page.waitForTimeout(200);
 
@@ -970,6 +1022,27 @@ try{
       const ayar=JSON.parse(localStorage.getItem('gm_settings'));
       return localStorage.getItem('gm_stock')===null&&localStorage.getItem('gm_moves')===null
         &&!('stok'in ayar)&&ayar.anomali===false;
+    }));
+  /* 24 — müdürün girdiği çek patronun Çekler ekranına ulaşıyor */
+  check("müdürün verdiği çek patronun ödeyeceklerine ekleniyor",
+    await page.evaluate(()=>{
+      mergeCloudNotes([{id:777101,type:'cek',yon:'borc',createdAt:'x',kisi:'Veli',tutar:80000,
+        vade:'2030-02-01',mudur:'Test Müdür',mudurId:'m1'}]);
+      const p=PAYMENTS.find(x=>x.id===777101);
+      return !!p&&p.cek&&payAmountNum(p)===80000&&p.dueDate==='2030-02-01'&&!NOTES.some(n=>n.id===777101);
+    }));
+  check("müdürün aldığı çek patronun alacaklarına ekleniyor",
+    await page.evaluate(()=>{
+      mergeCloudNotes([{id:777102,type:'cek',yon:'alacak',createdAt:'x',kisi:'Ali',tutar:40000,
+        vade:'2030-03-01',mudur:'Test Müdür',mudurId:'m1'}]);
+      const l=LOANS.find(x=>x.id===777102);
+      return !!l&&l.cek&&l.tutar===40000;
+    }));
+  check("patronun sildiği müdür çeki geri gelmiyor",
+    await page.evaluate(async()=>{
+      await delPay(777101);
+      mergeCloudNotes([{id:777101,type:'cek',yon:'borc',createdAt:'x',kisi:'Veli',tutar:80000,vade:'2030-02-01'}]);
+      return !PAYMENTS.some(x=>x.id===777101);
     }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",

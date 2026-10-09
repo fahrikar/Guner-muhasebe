@@ -14,6 +14,22 @@ Excel/CSV olarak dışa aktar. Tek dosyalık web uygulaması — build adımı y
 4. **Rapor**, **Çekler**, **Şantiye**, **Fabrika** ekranları (yalnız patron).
 5. Excel / CSV çıktısı her ekranın kendi düğmesinden alınır.
 
+### Çek mi, normal kayıt mı?
+
+**Çekler** ekranına yalnız çek gider:
+
+- Sesli/yazılı cümlede "çek" geçerse (çeki, çekle, çekten…) çek penceresi
+  açılır: yön (ödeyeceğim / tahsil edeceğim), kişi, tutar, vade. Ödenecek
+  çek **Ödeyeceklerim**e, tahsil edilecek çek **Alacaklarım**a yazılır.
+  Pencerede "Çek değil" denirse normal kayda döner.
+- Kamera ekranında okunan görselde karekod ya da çeke özgü sözcükler
+  (keşide, hamiline, ödeyiniz) varsa da aynı pencere açılır; tutar ve
+  vade görselden doldurulur, yönü kişi seçer. "Çek olarak kaydet" düğmesi
+  tanınmayan görselde de pencereyi açar.
+- Çek olmayan bütün borç ve alacaklar ("Mehmet'e 10 milyon verildi…")
+  normal onaydan geçip **Tablo**ya ve **Rapor**a işlenir.
+- Müdürün girdiği çek patronun Çekler ekranına gelir.
+
 Stok bölümü verisiyle birlikte kaldırıldı: telefonlardaki eski stok
 kayıtları uygulama açılınca silinir, yedeğe girmez.
 
