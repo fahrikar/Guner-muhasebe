@@ -278,6 +278,9 @@ else ok("dış script'lerin hepsi defer");
     /* Borç verme → alacak, borç alma → borç, sıradan gider → borç. */
     [["Mehmet güner'e 25 milyon TL verildi 26 Kasım 2026'da geri alınacak","alacak"],
      ["Mehmet'e 10 milyon verildi 15 gün sonra alınacak","alacak"],
+     /* Ses tanıma cümleyi yarım bırakabiliyor: "geri alın". */
+     ["Mehmet güner'e 25 milyon Türk Lirası verildi 26 Kasım 2026'da geri alın","alacak"],
+     ["Ali'ye 3 bin verildi geri ödenecek","alacak"],
      ["Hamdiye 3 milyon verildi 27 Eylül'de geri verecek","alacak"],
      ["Ali'ye 5 bin borç verdim","alacak"],
      ["Veli'ye 2 milyon ödünç verildi","alacak"],
@@ -288,6 +291,9 @@ else ok("dış script'lerin hepsi defer");
       const r=api.varsayilanYon(c);
       if(r!==y)kotu.push(`"${c}" varsayılan yön ${r}, beklenen ${y}`);
     });
+    /* Çek olmayan kaydın vadesi de cümleden okunuyor. */
+    const vc="Mehmet güner'e 25 milyon Türk Lirası verildi 26 Kasım 2026'da geri alın";
+    if(api.vadeCoz(vc,G)!=="2026-11-26")kotu.push(`"${vc}" vadesi ${api.vadeCoz(vc,G)||"boş"}, beklenen 2026-11-26`);
     if(kotu.length)kotu.forEach(m=>bad("çek algılama: "+m));
     else ok(`çek algılaması (${cekler.length} çek, ${degil.length} çek olmayan, 1 görsel)`);
   }catch(e){ bad(`çek algılayıcı çalıştırılamadı: ${e.message}`); }

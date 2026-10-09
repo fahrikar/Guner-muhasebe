@@ -313,6 +313,34 @@ try{
   /* Sonraki toplam testleri bu kayda göre yazılmadı; kaldır. */
   await page.evaluate(async n=>{ NOTES=NOTES.filter(x=>x.id!==NOTES[0].id); await Store.set('notes',NOTES); renderTable(); },notOnce);
 
+  /* Vade: ekran görüntüsündeki cümle — yarım kalan "geri alın" ve
+     yıllı tarih. Vade onayda dolu gelmeli, kayda ve tabloya geçmeli. */
+  await page.evaluate(()=>go('voice'));
+  page.evaluate(()=>{
+    document.getElementById('voiceText').value="Mehmet güner'e 25 milyon Türk Lirası verildi 26 Kasım 2030'da geri alın";
+    saveNote('voice');
+  });
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  const vOn=await page.evaluate(()=>({vade:document.getElementById('onayVade').value,
+    yon:onayKalemler.map(k=>k.yon).join(','),n:onayKalemler.length}));
+  check("vade onayda dolu, yön alacak, tek kalem",
+    vOn.vade==="2030-11-26"&&vOn.yon==="alacak"&&vOn.n===1,JSON.stringify(vOn));
+  await page.evaluate(()=>onayla());
+  await page.waitForTimeout(300);
+  check("vade kayda yazıldı",await page.evaluate(()=>NOTES[0].vade==='2030-11-26'));
+  await page.evaluate(()=>{go('notes');renderTable();});
+  await page.waitForTimeout(200);
+  check("vade tabloda görünüyor",(await page.textContent("#tableBox")).includes("vade 26.11.2030"));
+  /* Vadesi yarın olan kayıt ana ekranda hatırlatılıyor. */
+  check("yarın vadeli kayıt hatırlatılıyor",
+    await page.evaluate(()=>{
+      const y=new Date(Date.now()+864e5); NOTES[0].vade=todayStr(y);
+      checkReminders();
+      const t=document.getElementById('reminderBox').textContent;
+      return t.includes('Yarın vadesi var')&&t.includes('tahsil edilecek');
+    }));
+  await page.evaluate(async()=>{ NOTES.shift(); await Store.set('notes',NOTES); renderTable(); checkReminders(); });
+
   /* Tahsil edilecek çek → Alacaklarım */
   await page.evaluate(()=>go('voice'));
   page.evaluate(()=>{

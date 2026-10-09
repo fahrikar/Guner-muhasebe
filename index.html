@@ -492,6 +492,9 @@
     <div style="font-weight:700;font-size:16px">Kaydı onayla</div>
     <div class="muted" id="onayDuyulan" style="margin:4px 0 10px"></div>
     <div id="onaySatirlar"></div>
+    <!-- Cümlede tarih geçiyorsa dolu gelir; borç verme/alma kaydının vadesi. -->
+    <label for="onayVade">Vade (opsiyonel)</label>
+    <input id="onayVade" type="date">
     <div class="muted" id="onayUyari" style="min-height:18px;margin-top:8px"></div>
     <div class="row" style="margin-top:8px">
       <button class="btn" style="flex:1" onclick="onayla()">Kaydet</button>
@@ -894,6 +897,9 @@ function onaySor(items,duyulan){
     }));
     document.getElementById('onayDuyulan').textContent='Duyulan: '+duyulan;
     document.getElementById('onayUyari').textContent='';
+    /* Vade eskiden hiç tutulmuyordu: "26 Kasım'da geri alınacak" kayıtta
+       kayboluyordu. Cümleden okunur, kişi düzeltebilir ya da silebilir. */
+    document.getElementById('onayVade').value=vadeCoz(duyulan||'');
     onayCiz();
     kat.style.display='flex';
   });
@@ -941,6 +947,8 @@ function onayla(){
     document.getElementById('onayUyari').textContent='Kaydedilecek kalem yok. Adı ve tutarı dolu en az bir satır gerekiyor.';
     return;
   }
+  const vade=document.getElementById('onayVade').value||'';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(vade))kalan.vade=vade;
   onayKapat(kalan);
 }
 function onayVazgec(){
@@ -1481,6 +1489,7 @@ async function autoSaveVoice(){
     /* onayli: bu kayıt onay ekranından geçti. İşareti olmayan hiçbir şey
        tabloya, rapora ya da Excel'e girmiyor. */
     const yeni={id:noteId,type:'voice',text:txt,items,onayli:true,createdAt:new Date().toISOString()};
+    if(onaylanan.vade)yeni.vade=onaylanan.vade;
     if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
     NOTES.unshift(yeni);
     await Store.set('notes',NOTES);
@@ -1852,7 +1861,9 @@ const CEK_ALACAK=/aldım|aldik|aldık|alındı|alindi|geldi|tahsil|verecek|alaca
    buradan gelir, kişi değiştirebilir. Sözlükteki kategoriler etkilenmez. */
 const BORC_ACIK=/(bor[çc]|[öo]d[üu]n[çc])\s*ver/;
 const BORC_VERME=/veril(di|ecek)|verdim|verd[iı]k/;
-const GERI_DONUS=/al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|[öo]deyecek|geri\s*verecek|iade/;
+/* "geri" + al/öde/ver/gel yeter: ses tanıma cümleyi "geri alın" diye
+   yarım bırakabiliyor. */
+const GERI_DONUS=/al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|[öo]deyecek|geri\s*(al|[öo]de|ver|gel)|iade/;
 const BIZE_VERDI=/(^|[^a-zçğıöşü])(bize|bana)(?![a-zçğıöşü])/;
 function varsayilanYon(text){
   const t=trLower(String(text||''));
@@ -2028,7 +2039,7 @@ function allItems(notes,includeUnknown){
   const out=[];
   notes.forEach(n=>(n.items||[]).forEach(it=>{
     if(!includeUnknown&&!it.known)return;
-    out.push(Object.assign({},it,{createdAt:n.createdAt}));
+    out.push(Object.assign({},it,{createdAt:n.createdAt,vade:n.vade||''}));
   }));
   return out;
 }
@@ -2077,6 +2088,7 @@ async function saveNote(type,zorlaCek){
     if(!belge){alert('Gider girişi için belge gerekiyor. Kaydedilmedi.');return;}
   }
   const yeni={id:Date.now(),type,text:txt,items,onayli:true,createdAt:new Date().toISOString()};
+  if(onaylanan.vade)yeni.vade=onaylanan.vade;
   if(belge){yeni.belgeTur=belge.tur;yeni.belgeNo=belge.no;}
   NOTES.unshift(yeni);
   await Store.set('notes',NOTES);
@@ -2093,6 +2105,7 @@ function renderTable(){
     tarih:fmt(n.createdAt),kategori:it.known||it.category,grup:it.grup||'—',
     tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
     belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():'',
+    vade:n.vade||'',
     yon:it.known?yonOf(it.known):null})));
   if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
 
@@ -2115,6 +2128,8 @@ function renderTable(){
     return '<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
       +'<td class="tar">'+r.tarih.split(' ')[0]+'</td>'
       +'<td>'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
+        +(r.vade?'<div class="alt" style="font-weight:600'+(daysUntil(r.vade)<0?';color:var(--danger)':'')+'">vade '
+          +fmtDate(r.vade)+'</div>':'')
         +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')+'</td>'
       +'<td class="num">'+money(r.tutar)+'</td>'
       +'<td class="sil"><button type="button" aria-label="Sil" '
@@ -2265,7 +2280,7 @@ function exportTableCSV(){
   if(!its.length){alert('Tanımlı kalem yok.');return;}
   const y=yonAyir(its);
   const rows=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
-                          Kategori:i.known,Grup:i.grup,Tutar:i.amount}));
+                          Kategori:i.known,Grup:i.grup,Tutar:i.amount,Vade:i.vade?fmtDate(i.vade):''}));
   rows.push({Tarih:'',Yön:'',Kategori:'BORÇ TOPLAMI',Grup:'',Tutar:y.tBorc});
   rows.push({Tarih:'',Yön:'',Kategori:'ALACAK TOPLAMI',Grup:'',Tutar:y.tAlacak});
   rows.push({Tarih:'',Yön:'',Kategori:'NET',Grup:'',Tutar:y.net});
@@ -2282,7 +2297,8 @@ function exportTable(){
   const blokSatirlari=(baslik,liste,toplam)=>{
     if(!liste.length)return [];
     return [{Tarih:baslik,Kategori:'',Grup:'','Tutar (₺)':''}]
-      .concat(liste.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount})))
+      .concat(liste.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,
+                              Vade:i.vade?fmtDate(i.vade):''})))
       .concat([{Tarih:'',Kategori:baslik+' TOPLAMI',Grup:'','Tutar (₺)':toplam},
                {Tarih:'',Kategori:'',Grup:'','Tutar (₺)':''}]);
   };
@@ -2493,7 +2509,7 @@ function exportReport(t){
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum),'Özet');
     const det=[];
     groups.forEach(g=>g.items.forEach(i=>det.push({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                                                   Tutar:i.amount,Tarih:fmt(i.createdAt),Metin:i.raw})));
+                                                   Tutar:i.amount,Tarih:fmt(i.createdAt),Vade:i.vade?fmtDate(i.vade):'',Metin:i.raw})));
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det.length?det:[{Kategori:'',Tutar:'',Tarih:'',Metin:''}]),'Detay');
     return writeWorkbook(wb,title+'.xlsx');
   }
@@ -2576,7 +2592,7 @@ function exportFullTemplate(){
 
   /* 5) HAREKET DETAYI */
   const det=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
-                         Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,Kaynak:i.raw}));
+                         Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,Vade:i.vade?fmtDate(i.vade):'',Kaynak:i.raw}));
   XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(det.length?det:[{Tarih:'',Yön:'',Kategori:'',Grup:'','Tutar (₺)':'',Kaynak:''}]),[18,10,22,26,14,34]),'Hareket Detayı');
 
   /* 6) ÇEK ÖDEMELERİ */
@@ -3148,8 +3164,18 @@ function checkReminders(){
      gösteriliyor. */
   const alYarin=LOANS.filter(l=>!l.alindi&&l.vade&&daysUntil(l.vade)===1);
   const alGecmis=LOANS.filter(l=>!l.alindi&&l.vade&&daysUntil(l.vade)<0);
+  /* Tablo kayıtlarının vadesi: bugün ya da yarın olanlar. Geçmişte kalanlar
+     için ısrar edilmez — kayıtlarda "ödendi/alındı" işareti yok. */
+  const kayitVade=onayliNotes().filter(n=>n.vade&&(n.items||[]).length)
+    .map(n=>({n:n,g:daysUntil(n.vade)})).filter(x=>x.g===0||x.g===1);
   const box=document.getElementById('reminderBox');
-  let html=due.map(p=>`<div class="banner">🔔 <b>Yarın çek ödemesi var:</b> ${escapeHtml(p.title)}${p.amount?' — '+escapeHtml(p.amount):''}</div>`).join('');
+  let html=kayitVade.map(({n,g})=>{
+    const it=n.items[0], al=yonOf(it.known||it.category)==='alacak';
+    const top=n.items.reduce((a,b)=>a+(b.amount||0),0);
+    return '<div class="banner">🔔 <b>'+(g===0?'Bugün':'Yarın')+' vadesi var'
+      +(al?' (tahsil edilecek)':' (ödenecek)')+':</b> '+escapeHtml(it.known||it.category)+' — '+money(top)+'</div>';
+  }).join('');
+  html+=due.map(p=>`<div class="banner">🔔 <b>Yarın çek ödemesi var:</b> ${escapeHtml(p.title)}${p.amount?' — '+escapeHtml(p.amount):''}</div>`).join('');
   html+=alYarin.map(l=>`<div class="banner">🔔 <b>Yarın tahsil edilecek:</b> ${escapeHtml(l.kisi)} — ${money(l.tutar)}</div>`).join('');
   if(alGecmis.length){
     const t=alGecmis.reduce((x,y)=>x+(y.tutar||0),0);
@@ -3167,7 +3193,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.8";
+const APP_VERSION="2026-10-09.9";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
