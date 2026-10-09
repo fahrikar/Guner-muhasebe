@@ -295,14 +295,21 @@ try{
   await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
   check("çek olmayan borç normal onaya gidiyor",
     await page.isVisible("#onayKat")&&!(await page.isVisible("#cekKat")));
+  check("borç verme onayda Alacak seçili geliyor",
+    await page.evaluate(()=>onayKalemler.length===1&&onayKalemler[0].yon==='alacak'),
+    await page.evaluate(()=>JSON.stringify(onayKalemler)));
   await page.evaluate(()=>onayla());
   await page.waitForTimeout(300);
   check("çek olmayan borç tabloya işleniyor, alacaklara gitmiyor",
     await page.evaluate(n=>NOTES.length===n+1&&LOANS.length===0,notOnce));
   await page.evaluate(()=>{go('notes');renderTable();});
   await page.waitForTimeout(200);
-  check("çek olmayan borç tabloda görünüyor",
-    (await page.textContent("#tableBox")).includes("10.000.000"));
+  check("çek olmayan borç tabloda ALACAK bölümünde",
+    await page.evaluate(()=>{
+      const t=document.getElementById('tableBox').textContent;
+      const a=t.indexOf('ALACAK'), k=t.indexOf('10.000.000');
+      return a>=0&&k>a;
+    }));
   /* Sonraki toplam testleri bu kayda göre yazılmadı; kaldır. */
   await page.evaluate(async n=>{ NOTES=NOTES.filter(x=>x.id!==NOTES[0].id); await Store.set('notes',NOTES); renderTable(); },notOnce);
 

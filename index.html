@@ -889,7 +889,7 @@ function onaySor(items,duyulan){
       ad:i.known||i.category||'',
       tutar:i.amount,
       sozlukte:!!i.known,
-      yon:i.known?yonOf(i.known):'borc',
+      yon:i.known?yonOf(i.known):varsayilanYon(duyulan),
       sil:false
     }));
     document.getElementById('onayDuyulan').textContent='Duyulan: '+duyulan;
@@ -1845,6 +1845,21 @@ const CEK_KELIMESI=/(^|[^a-zçğıöşü])(çek|cek)(i|ı|e|le|ler|leri|lerin|te
 const CEK_BIZE=/(^|[^a-zçğıöşü])(bize|bana)(?![a-zçğıöşü])/;
 const CEK_BORC=/verdim|verdik|verildi|yazdım|yazdik|yazdık|kestim|kestik|keşide|keside|ödeyeceğ|odeyeceg|ödenecek|odenecek|ödeme/;
 const CEK_ALACAK=/aldım|aldik|aldık|alındı|alindi|geldi|tahsil|verecek|alacağ|alacag|müşteri|musteri/;
+/* ---------- BORÇ VERME / ALMA YÖNÜ ----------
+   Çek olmayan borç verme cümleleri Tablo'ya gider. Muhasebedeki anlamıyla:
+   birine borç verdiysek para geri gelecek → ALACAK; bize borç verildiyse
+   geri ödeyeceğiz → BORÇ. Onay ekranında serbest kalemin varsayılan yönü
+   buradan gelir, kişi değiştirebilir. Sözlükteki kategoriler etkilenmez. */
+const BORC_ACIK=/(bor[çc]|[öo]d[üu]n[çc])\s*ver/;
+const BORC_VERME=/veril(di|ecek)|verdim|verd[iı]k/;
+const GERI_DONUS=/al[ıi]nacak|alaca[ğg][ıi]m|alaca[ğg][ıi]z|[öo]deyecek|geri\s*verecek|iade/;
+const BIZE_VERDI=/(^|[^a-zçğıöşü])(bize|bana)(?![a-zçğıöşü])/;
+function varsayilanYon(text){
+  const t=trLower(String(text||''));
+  if(BIZE_VERDI.test(t)&&(BORC_ACIK.test(t)||/verdi|verecek/.test(t)))return 'borc';
+  if(BORC_ACIK.test(t)||(BORC_VERME.test(t)&&GERI_DONUS.test(t)))return 'alacak';
+  return 'borc';
+}
 /* Kişi adı: ses tanıma özel adı kesme işaretiyle yazıyor ("Mehmet'e",
    "Ali'den"); "Mehmet bize …" kalıbı da yakalanır. Bulunamazsa boş kalır,
    pencerede yazılır. */
@@ -3152,7 +3167,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.7";
+const APP_VERSION="2026-10-09.8";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

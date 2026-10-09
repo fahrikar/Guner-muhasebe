@@ -241,7 +241,7 @@ else ok("dış script'lerin hepsi defer");
   if(bas<0||son<0)bad("çek algılayıcı bulunamadı (test güncellenmeli).");
   else try{
     const api=new Function("const pad=n=>String(n).padStart(2,'0');"+html.slice(bas,son)
-      +"\nreturn {cekCumlesi,cekGorselCoz,cekGorselMi,vadeCoz};")();
+      +"\nreturn {cekCumlesi,cekGorselCoz,cekGorselMi,vadeCoz,varsayilanYon};")();
     const G="2026-08-09T12:00:00";
     const cekler=[
       ["Mehmet'e 50 bin çek verdim 15 gün sonra",            "borc",  50000,"2026-08-24","Mehmet"],
@@ -275,6 +275,19 @@ else ok("dış script'lerin hepsi defer");
     if(g.yon!=="")kotu.push(`görselde yön tahmin edildi (${g.yon}) — her çekte "keşide" yazar, kişi seçmeli`);
     if(g.vade!=="2026-11-15")kotu.push(`görselden vade ${g.vade||"boş"}, beklenen 2026-11-15`);
     if(api.cekGorselMi("Market fişi\nEkmek 15,00\nToplam 87,50"))kotu.push("market fişi çek sanıldı");
+    /* Borç verme → alacak, borç alma → borç, sıradan gider → borç. */
+    [["Mehmet güner'e 25 milyon TL verildi 26 Kasım 2026'da geri alınacak","alacak"],
+     ["Mehmet'e 10 milyon verildi 15 gün sonra alınacak","alacak"],
+     ["Hamdiye 3 milyon verildi 27 Eylül'de geri verecek","alacak"],
+     ["Ali'ye 5 bin borç verdim","alacak"],
+     ["Veli'ye 2 milyon ödünç verildi","alacak"],
+     ["Ahmet bana 5 milyon borç verecek","borc"],
+     ["Hasan bize 2 milyon borç verdi","borc"],
+     ["işçi ödemesi 12 bin verildi","borc"],
+     ["market 900","borc"]].forEach(([c,y])=>{
+      const r=api.varsayilanYon(c);
+      if(r!==y)kotu.push(`"${c}" varsayılan yön ${r}, beklenen ${y}`);
+    });
     if(kotu.length)kotu.forEach(m=>bad("çek algılama: "+m));
     else ok(`çek algılaması (${cekler.length} çek, ${degil.length} çek olmayan, 1 görsel)`);
   }catch(e){ bad(`çek algılayıcı çalıştırılamadı: ${e.message}`); }
