@@ -1125,7 +1125,13 @@ function mergeCloudNotes(cloudNotes){
     /* Müdürün verdiği çek: patronun "Ödeyeceklerim" listesine. */
     if(n.type==='cek'){ if(buluttanCekBorc(n))odemeGeldi=true; return; }
     /* Patronun bu cihazda sildiği şey buluttan geri gelmesin. */
-    const t=silineniUygula(n);
+    let t=silineniUygula(n);
+    /* Bu cihazda elle girilen vade buluttaki (değişmeyen) kopyaya üstün. */
+    const yerel=map[n.id];
+    if(t&&yerel&&yerel.vadeYerel){
+      t=Object.assign({},t,{vadeYerel:true});
+      if(yerel.vade)t.vade=yerel.vade; else delete t.vade;
+    }
     if(t)map[n.id]=t; else delete map[n.id];
     /* Müdürün serbest kalem için seçtiği yön kalemde taşınıyor; burada
        bilinmiyorsa öğrenilir. Yoksa müdürün "alacak" dediği kalem patronun
@@ -2128,8 +2134,14 @@ function renderTable(){
     return '<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
       +'<td class="tar">'+r.tarih.split(' ')[0]+'</td>'
       +'<td>'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
-        +(r.vade?'<div class="alt" style="font-weight:600'+(daysUntil(r.vade)<0?';color:var(--danger)':'')+'">vade '
-          +fmtDate(r.vade)+'</div>':'')
+        /* Vadeye dokununca değişir; alacakta vade yoksa eklenebilir
+           (vade alanı gelmeden önce kaydedilmiş satırlar için de). */
+        +(r.vade
+          ?'<div class="alt" style="font-weight:600;cursor:pointer'+(daysUntil(r.vade)<0?';color:var(--danger)':'')+'" '
+            +'onclick="kayitVade('+r.noteId+')">vade '+fmtDate(r.vade)+' ✎</div>'
+          :r.yon==='alacak'
+            ?'<div class="alt" style="cursor:pointer;color:var(--warn,#a9761e)" onclick="kayitVade('+r.noteId+')">+ vade ekle</div>'
+            :'')
         +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')+'</td>'
       +'<td class="num">'+money(r.tutar)+'</td>'
       +'<td class="sil"><button type="button" aria-label="Sil" '
@@ -2262,6 +2274,25 @@ function ayarCiz(){
      eski yapıda mı kalındığını başka türlü anlamanın yolu yok. */
   const surum='<div class="muted" style="text-align:center;padding:12px 0 2px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
   box.innerHTML=ayarlar+surum;
+}
+/* Tablo kaydının vadesini ekler/değiştirir. Boş bırakılırsa vade kalkar.
+   Bulut kopyası değiştirilemediği için yerel vade birleştirmede korunur. */
+async function kayitVade(noteId){
+  const n=NOTES.find(x=>x.id===noteId); if(!n)return;
+  const c=prompt('Vade tarihi (gün.ay.yıl) — boş bırakırsan vade kalkar:',n.vade?fmtDate(n.vade):'');
+  if(c===null)return;
+  const t=c.trim();
+  let iso='';
+  if(t){
+    const m=t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+    if(m)iso=m[3]+'-'+pad(+m[2])+'-'+pad(+m[1]);
+    else if(/^\d{4}-\d{2}-\d{2}$/.test(t))iso=t;
+    if(!iso||isNaN(new Date(iso+'T00:00').getTime())){ alert('Tarih anlaşılmadı. Örnek: 26.11.2026'); return; }
+  }
+  if(iso)n.vade=iso; else delete n.vade;
+  n.vadeYerel=true;                     // buluttan gelen kopya bunu ezmesin
+  await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
+  renderTable(); checkReminders();
 }
 /* Para kaydı siliniyor: yanlış dokunuş bir gideri sessizce yok ediyordu. */
 async function delRow(noteId,idx){
@@ -3193,7 +3224,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.9";
+const APP_VERSION="2026-10-09.10";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

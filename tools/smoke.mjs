@@ -339,6 +339,22 @@ try{
       const t=document.getElementById('reminderBox').textContent;
       return t.includes('Yarın vadesi var')&&t.includes('tahsil edilecek');
     }));
+  /* Vadesiz eski alacak satırına vade eklenebiliyor; buluttan gelen kopya
+     bunu ezmiyor. */
+  check("vadesiz alacakta vade ekle bağlantısı var",
+    await page.evaluate(()=>{ delete NOTES[0].vade; renderTable();
+      return document.getElementById('tableBox').textContent.includes('+ vade ekle'); }));
+  await page.evaluate(()=>{ window.prompt=()=>'26.11.2030'; return kayitVade(NOTES[0].id); });
+  await page.waitForTimeout(200);
+  check("tablodan vade eklenebiliyor",
+    await page.evaluate(()=>NOTES[0].vade==='2030-11-26'
+      &&document.getElementById('tableBox').textContent.includes('vade 26.11.2030')));
+  check("elle girilen vade buluttan ezilmiyor",
+    await page.evaluate(()=>{
+      const kopya=JSON.parse(JSON.stringify(NOTES[0])); delete kopya.vade; delete kopya.vadeYerel;
+      mergeCloudNotes([kopya]);
+      return NOTES.find(x=>x.id===kopya.id).vade==='2030-11-26';
+    }));
   await page.evaluate(async()=>{ NOTES.shift(); await Store.set('notes',NOTES); renderTable(); checkReminders(); });
 
   /* Tahsil edilecek çek → Alacaklarım */
