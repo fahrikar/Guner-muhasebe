@@ -877,6 +877,110 @@ try{
   check("yayından PIN sıfırlama cihaz değişikliğini geçersiz kılıyor",
     await page.evaluate(async()=>ROLES[0].hash===await pinHash('55555555')));
 
+  /* 16 — bulut kuyruğu: gönderilemeyen kayıt unutulmuyor.
+     Firebase yerine sahte bir db konuyor; ağ gerekmiyor. */
+  check("gönderilemeyen kayıt kuyrukta kalıyor, sonra gidiyor",
+    await page.evaluate(async()=>{
+      const yazilan={}; let calisir=false;
+      db={ref:yol=>({
+        set:async v=>{ if(!calisir)throw new Error('çevrimdışı'); yazilan[yol]=v; },
+        once:async()=>({exists:()=>!!yazilan[yol]})})};
+      cloudOn=true;
+      const n={id:777001,type:'voice',text:'yakıt 100',onayli:true,createdAt:new Date().toISOString(),
+               items:[{category:'Yakıt',amount:100,raw:'Yakıt 100',known:'Yakıt',grup:'Gider'}]};
+      NOTES.unshift(n); await pushCloudNote(n);
+      await new Promise(r=>setTimeout(r,50));
+      const bekledi=BULUT_KUYRUK.some(p=>p.id===777001)
+        &&(await Store.get('kuyruk',[])).some(p=>p.id===777001)
+        &&document.getElementById('bulutDurum').textContent.includes('bekliyor');
+      calisir=true; await bulutKuyrukGonder();
+      const gitti=!!yazilan['kayitlar/777001']&&!BULUT_KUYRUK.length
+        &&!document.getElementById('bulutDurum').textContent.includes('bekliyor');
+      NOTES=NOTES.filter(x=>x.id!==777001); await Store.set('notes',NOTES);
+      return bekledi&&gitti;
+    }));
+  check("kayıt zaten buluttaysa kuyruktan düşüyor",
+    await page.evaluate(async()=>{
+      db={ref:()=>({set:async()=>{throw new Error('PERMISSION_DENIED');},
+                    once:async()=>({exists:()=>true})})};
+      await buluta({id:777002,type:'voice',createdAt:'x'});
+      await new Promise(r=>setTimeout(r,50));
+      return !BULUT_KUYRUK.length;
+    }));
+
+  /* 17 — patronun sildiği müdür kaydı buluttan geri gelmiyor */
+  check("silinen kalem buluttan geri gelmiyor",
+    await page.evaluate(async()=>{
+      const bulut={id:777003,type:'voice',text:'iki kalem',onayli:true,createdAt:new Date().toISOString(),
+        mudur:'Test Müdür',mudurId:'m1',
+        items:[{category:'Yakıt',amount:300,raw:'Yakıt 300',known:'Yakıt',grup:'Gider'},
+               {category:'Kira',amount:900,raw:'Kira 900',known:'Kira',grup:'Gider'}]};
+      mergeCloudNotes([JSON.parse(JSON.stringify(bulut))]);
+      await delRow(777003,0);
+      mergeCloudNotes([JSON.parse(JSON.stringify(bulut))]);
+      const n=NOTES.find(x=>x.id===777003);
+      return !!n&&n.items.length===1&&n.items[0].known==='Kira';
+    }));
+  check("tamamen silinen kayıt buluttan geri gelmiyor",
+    await page.evaluate(async()=>{
+      await pitchSil(777003);
+      mergeCloudNotes([{id:777003,type:'voice',onayli:true,createdAt:new Date().toISOString(),
+        items:[{category:'Kira',amount:900,raw:'Kira 900',known:'Kira'}]}]);
+      return !NOTES.some(x=>x.id===777003)&&(await Store.get('silinen',{}))[777003]==='*';
+    }));
+
+  /* 18 — müdürün serbest kalem için seçtiği yön patrona taşınıyor */
+  check("serbest kalemin yönü buluttan öğreniliyor",
+    await page.evaluate(()=>{
+      delete SERBEST_YON['Hurda Satışı'];
+      mergeCloudNotes([{id:777004,type:'voice',onayli:true,createdAt:new Date().toISOString(),
+        mudur:'Test Müdür',mudurId:'m1',
+        items:[{category:'Hurda Satışı',amount:500,raw:'Hurda Satışı 500',known:'Hurda Satışı',grup:'Serbest',yon:'alacak'}]}]);
+      return yonOf('Hurda Satışı')==='alacak';
+    }));
+  check("onaydan geçen serbest kalem yönünü taşıyor",
+    await page.evaluate(async()=>{
+      const k=await onaydanKalemler([{ad:'Kasa farkı',tutar:50,yon:'alacak'},{ad:'Yakıt',tutar:10,yon:'borc'}]);
+      return k[0].yon==='alacak'&&k[1].yon===undefined;
+    }));
+
+  /* 19 — müdürün verdiği borç patrona ulaşıyor */
+  check("müdürün verdiği borç buluta gidiyor",
+    await page.evaluate(async()=>{
+      let giden=null;
+      db={ref:()=>({set:async v=>{giden=v;},once:async()=>({exists:()=>false})})};
+      const e=CURRENT, eskiL=LOANS.slice();
+      CURRENT={rol:'mudur',ad:'Test Müdür',mudurId:'m1',hash:'x'};
+      await borcKaydet({kisi:'Mehmet',tutar:5000,vade:'2030-01-01'});
+      await new Promise(r=>setTimeout(r,50));
+      CURRENT=e; LOANS=eskiL; await Store.set('loans',LOANS);
+      return !!giden&&giden.type==='alacak'&&giden.tutar===5000&&giden.mudurId==='m1';
+    }));
+  check("buluttaki müdür borcu patronun alacak listesine ekleniyor",
+    await page.evaluate(()=>{
+      mergeCloudNotes([{id:777005,type:'alacak',createdAt:'2026-10-01T10:00:00.000Z',
+        kisi:'Mehmet',tutar:5000,verildi:'2026-10-01',vade:'2030-01-01',mudur:'Test Müdür',mudurId:'m1'}]);
+      const l=LOANS.find(x=>x.id===777005);
+      return !!l&&l.tutar===5000&&l.kimden==='Test Müdür'&&!NOTES.some(n=>n.id===777005);
+    }));
+  check("patronun sildiği müdür borcu geri gelmiyor",
+    await page.evaluate(async()=>{
+      await loanSil(777005);
+      mergeCloudNotes([{id:777005,type:'alacak',createdAt:'x',kisi:'Mehmet',tutar:5000}]);
+      return !LOANS.some(x=>x.id===777005);
+    }));
+
+  /* 20 — para cümlesi stok komutu sayılmıyor */
+  check("para cümlesi stoktan düşmüyor",
+    await page.evaluate(()=>{
+      const eski=STOCK; STOCK=[{id:1,name:'Boya',unit:'kg',qty:10}];
+      const para=detectStockCommand('boya 5 bin lira verildi');
+      const stok=detectStockCommand('boya 3 kg çıktı');
+      STOCK=eski;
+      return para===null&&!!stok&&stok.qty===3;
+    }));
+  await page.evaluate(()=>{ cloudOn=false; db=null; BULUT_KUYRUK=[]; bulutDurumCiz(); });
+
   check("sayfada JS hatası yok",errs.length===0,errs.join(" | "));
 }catch(e){ failed++; console.log("  HATA istisna → "+e.message); }
 finally{ await b.close(); srv.close(); }

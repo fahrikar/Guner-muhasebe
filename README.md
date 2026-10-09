@@ -170,6 +170,24 @@ Kayıtlar, stok, çekler, öğrenilen kelimeler ve ayarlar telefonun
 `localStorage`'ında (`gm_` önekiyle). Patron oturumunda müdürlerin bulut
 kayıtları da canlı olarak birleştirilir.
 
+### Buluta gönderim ve silme
+
+- Müdürün girdiği her kayıt önce telefondaki **kuyruğa** yazılır, bulut
+  kabul edince kuyruktan düşer. İnternet yoksa ya da yazma reddedilirse
+  kayıt kaybolmaz: ana ekranda "N kayıt buluta gönderilmeyi bekliyor"
+  yazar ve açılışta, internet gelince, uygulama öne gelince yeniden
+  denenir.
+- Müdürün **verdiği borç** da aynı yoldan (`kayitlar`, `type:'alacak'`)
+  patronun Ödeme ve Alacak ekranına gelir. "Geri alındı" işareti yalnız
+  patronun cihazında tutulur.
+- Sözlükte olmayan (serbest) bir kalemin yönü kalemin içinde taşınır;
+  müdürün "alacak" dediği kalem patronda da alacak görünür.
+- Bulutta kayıt silinemez. **Patronun sildiği** kayıt ya da alacak bu
+  cihazda "silinenler" listesine yazılır ve buluttan geri gelmez (yedeğe
+  de girer). **Müdürün sildiği** kayıt patrona zaten gitmişse patronun
+  ekranında kalır — kayıtların sonradan silinememesi bilerek seçilmiş bir
+  koruma; müdüre silmeden önce bu söylenir.
+
 Tablo ekranındaki **Yedek Al** bütün veriyi tek bir JSON dosyasına yazar;
 **Geri Yükle** onu okur. Telefon değişiminde ya da tarayıcı verisi
 silinmeden önce kullanılmalı.
@@ -240,5 +258,11 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   Bunun için PIN özetlerinin Firebase'e yazılması gerekir; kimliğin hâlâ
   istemcide doğrulandığı bir kurulumda bunu eklemek yeni bir açık yaratır,
   bu yüzden Firebase Authentication'a geçilmeden yapılmadı.
+- PIN özetleri depoda herkese açık ve PIN 8 haneli: güçlü bir ekran
+  kartıyla bütün olasılıkları denemek saatler sürer. PIN, sunucuda
+  doğrulanan bir giriş (Firebase Authentication) gelene kadar caydırıcıdır,
+  kilit değildir.
+- Sesli stok komutu artık onay soruyor; içinde para sözcüğü (lira, TL,
+  bin, milyon…) geçen cümle stok komutu sayılmıyor.
 - Sesli komut iPhone/iPad tarayıcılarında çalışmaz (Safari canlı ses
   tanımayı desteklemiyor); metin elle de yazılabilir.

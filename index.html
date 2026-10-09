@@ -243,6 +243,7 @@
   <!-- HOME -->
   <section class="screen" id="home">
     <div id="reminderBox"></div>
+    <div id="bulutDurum"></div>
     <div class="split">
       <div class="hero mic" id="micHero">
         <div class="discwrap" id="discWrap">
@@ -625,6 +626,9 @@ function initFirebase(){
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.database();
     firebase.auth().signInAnonymously().catch(()=>{});
+    /* Açılışta kuyruk, anonim giriş bitmeden denenip reddedilebiliyor;
+       giriş tamamlanınca bir daha denensin. */
+    firebase.auth().onAuthStateChanged(u=>{ if(u&&CURRENT)bulutKuyrukGonder(); });
     cloudOn=true; return true;
   }catch(e){ console.warn('Firebase yok:',e); return false; }
 }
@@ -727,6 +731,7 @@ async function enterApp(r){
   applyRole();
   await loadAll();
   startCloud();
+  bulutKuyrukGonder();
   checkReminders();
   go('home');
 }
@@ -755,6 +760,8 @@ async function loadAll(){
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
   STOCK=await Store.get('stock',[]);
   MOVES=await Store.get('moves',[]);
+  SILINEN=await Store.get('silinen',{})||{};
+  BULUT_KUYRUK=await Store.get('kuyruk',[])||[];
 }
 function logout(){
   Store.set('session',null);          // "beni hatırla" da bırakılır
@@ -824,11 +831,19 @@ function borcVazgec(){
   borcKapat(null);
 }
 async function borcKaydet(b){
-  LOANS.unshift({id:Date.now(),kisi:b.kisi,tutar:b.tutar,
+  const l={id:Date.now(),kisi:b.kisi,tutar:b.tutar,
     verildi:todayStr(),vade:b.vade||'',alindi:false,alindiAt:'',
-    kimden:CURRENT?CURRENT.ad:''});
+    kimden:CURRENT?CURRENT.ad:''};
+  LOANS.unshift(l);
   await Store.set('loans',LOANS);
   renderLoans();
+  /* Müdürün verdiği borç yalnız onun telefonunda kalıyordu; Ödeme ve
+     Alacak ekranı müdüre kapalı olduğu için onu kimse göremiyordu. Artık
+     kayıtlarla aynı yoldan patrona gidiyor (type:'alacak'). */
+  if(CURRENT&&!isPatron())
+    await buluta({id:l.id,type:'alacak',createdAt:new Date().toISOString(),
+      text:l.kisi+' '+l.tutar,kisi:l.kisi,tutar:l.tutar,verildi:l.verildi,
+      vade:l.vade,mudur:CURRENT.ad,mudurId:CURRENT.mudurId||''});
 }
 
 /* ---------- KAYIT ONAYI ----------
@@ -917,8 +932,12 @@ async function onaydanKalemler(kalan){
     const mc=matchCategory(ad);
     const known=mc?mc.ad:ad;
     if(!mc&&SERBEST_YON[known]!==k.yon){ SERBEST_YON[known]=k.yon; degisti=true; }
-    return {category:ad,amount:k.tutar,raw:ad+' '+k.tutar,
-            known:known,grup:mc?mc.grup:'Serbest'};
+    const it={category:ad,amount:k.tutar,raw:ad+' '+k.tutar,
+              known:known,grup:mc?mc.grup:'Serbest'};
+    /* Serbest kalemin yönü kalemle birlikte buluta gider; SERBEST_YON
+       yalnız bu cihazda olduğu için patron başka türlü bilemiyordu. */
+    if(!mc)it.yon=k.yon==='alacak'?'alacak':'borc';
+    return it;
   });
   if(degisti)await Store.set('serbestYon',SERBEST_YON);
   return items;
@@ -1016,10 +1035,13 @@ function startCloud(){
     /* Kurallar henüz yayınlanmadıysa okuma reddedilir. Sessiz kalırsa
        "atama neden gelmiyor" sorusunun cevabı hiçbir yerde olmaz. */
     console.warn('yerler okunamadı',err);
-    const w=document.getElementById('cloudWarn');
-    if(w&&!isPatron())w.textContent='⚠️ Şantiye/halısaha ataması buluttan okunamadı.';
+    /* Eskiden giriş ekranındaki #cloudWarn'a yazılıyordu; giriş yapılmışken
+       o ekran gizli olduğu için uyarıyı kimse görmüyordu. */
+    yerUyari=!isPatron();
+    bulutDurumCiz();
   });
 }
+let yerUyari=false;
 /* Firebase boş diziyi hiç yazmaz ve sayısal anahtarlı nesneyi bazen dizi
    olarak geri verir; iki biçimi de kabul ediyoruz. */
 function yerleriCoz(val){
@@ -1056,24 +1078,152 @@ async function pushYerler(){
 function stopCloud(){
   if(cloudRef){ try{cloudRef.off();}catch(e){} cloudRef=null; }
   if(yerRef){ try{yerRef.off();}catch(e){} yerRef=null; }
+  yerUyari=false;
 }
 function mergeCloudNotes(cloudNotes){
   // yerel + bulut birleştir (id'ye göre tekilleştir)
   const map={};
   NOTES.forEach(n=>map[n.id]=n);
-  cloudNotes.forEach(n=>{ if(n&&n.id)map[n.id]=n; });
+  let yonDegisti=false, alacakGeldi=false;
+  cloudNotes.slice().sort((a,b)=>(a&&a.id||0)-(b&&b.id||0)).forEach(n=>{
+    if(!n||!n.id)return;
+    /* Müdürün verdiği borç: kayıt değil, alacak listesine gider. */
+    if(n.type==='alacak'){ if(buluttanAlacak(n))alacakGeldi=true; return; }
+    /* Patronun bu cihazda sildiği şey buluttan geri gelmesin. */
+    const t=silineniUygula(n);
+    if(t)map[n.id]=t; else delete map[n.id];
+    /* Müdürün serbest kalem için seçtiği yön kalemde taşınıyor; burada
+       bilinmiyorsa öğrenilir. Yoksa müdürün "alacak" dediği kalem patronun
+       ekranında borç tarafına düşüyordu. Bu cihazdaki seçim önceliklidir. */
+    ((t&&t.items)||[]).forEach(it=>{
+      if(it&&it.known&&(it.yon==='alacak'||it.yon==='borc')
+         &&!CATEGORY_MAP.some(c=>c.ad===it.known)&&SERBEST_YON[it.known]===undefined){
+        SERBEST_YON[it.known]=it.yon; yonDegisti=true;
+      }
+    });
+  });
   NOTES=Object.values(map).sort((a,b)=>b.id-a.id);
   Store.set('notes',NOTES);
+  if(yonDegisti)Store.set('serbestYon',SERBEST_YON);
+  if(alacakGeldi){ Store.set('loans',LOANS); renderLoans(); checkReminders(); }
   /* Müdür kaydı bulutta göründüğü anda şantiye ekranı da tazelensin —
      "anlık takip" bunu gerektiriyor. */
   renderTable(); renderSites(); renderFactory(); renderPitch();
 }
-async function pushCloudNote(note){
-  if(!cloudOn||!CURRENT)return;
+
+/* ---------- SİLİNENLER ----------
+   Bulutta kayıt silinemez (kurallar yalnız eklemeye izin veriyor). Bu
+   yüzden patronun sildiği bir müdür kaydı, bulut her güncellendiğinde
+   geri geliyordu. Silinenler burada tutulur ve buluttan gelen kayda
+   uygulanır: '*' kaydın tamamı, dizi ise silinen kalemlerin imzaları.
+   Kalem sırası değil imzası tutuluyor; silindikçe sıra kayıyor. */
+let SILINEN={};
+function kalemImzasi(it){ return [it.known||it.category||'',it.amount,it.raw||''].join('|'); }
+function silineniUygula(n){
+  const s=SILINEN[n.id];
+  if(!s)return n;
+  if(s==='*')return null;
+  const kalan=(n.items||[]).slice();
+  s.forEach(imza=>{ const i=kalan.findIndex(it=>it&&kalemImzasi(it)===imza); if(i>=0)kalan.splice(i,1); });
+  return kalan.length?Object.assign({},n,{items:kalan}):null;
+}
+async function silindiIsaretle(noteId,it){
+  if(it){
+    if(SILINEN[noteId]!=='*')(SILINEN[noteId]=SILINEN[noteId]||[]).push(kalemImzasi(it));
+  }else SILINEN[noteId]='*';
+  await Store.set('silinen',SILINEN);
+}
+/* Müdür kendi kaydını sildiğinde patrona gitmiş kopya yerinde kalır —
+   bilerek: kayıtların sonradan silinememesi kuralların asıl amacı. Bunu
+   silmeden önce söylemek gerekiyor, yoksa müdür sildiğini sanıyor. */
+function silmeNotu(noteId){
+  if(isPatron()||!cloudOn)return '';
+  if(BULUT_KUYRUK.some(p=>p.id===noteId))return '';
+  return '\n\nKayıt patrona gönderildi; onun ekranından silinmez.';
+}
+
+/* ---------- BULUT KUYRUĞU ----------
+   Eskiden buluta yazma bir kez deneniyor, olmazsa yalnız konsola yazılıp
+   unutuluyordu. İnternetsiz girilen müdür kaydı, sayfa kapanınca bir daha
+   hiç gönderilmiyor ve patron onu hiç görmüyordu. Artık gönderilecek her
+   şey önce bu cihazdaki kuyruğa yazılıyor, bulut kabul edince siliniyor;
+   açılışta, internet gelince ve uygulama öne gelince yeniden deneniyor. */
+let BULUT_KUYRUK=[], kuyrukMesgul=false, kuyrukTekrar=false;
+async function buluta(veri){
+  if(!BULUT_KUYRUK.some(p=>p.id===veri.id))
+    BULUT_KUYRUK.push(JSON.parse(JSON.stringify(veri)));
+  await Store.set('kuyruk',BULUT_KUYRUK);
+  bulutKuyrukGonder();
+}
+async function bulutYaz(veri){
+  try{ await db.ref('kayitlar/'+veri.id).set(veri); return true; }
+  catch(e){
+    /* Önceki deneme aslında yazmış olabilir (cevap gelmeden uygulama
+       kapandıysa). Kurallar var olan kaydın üzerine yazmayı reddeder;
+       kayıt oradaysa iş tamamdır. */
+    try{ const s=await db.ref('kayitlar/'+veri.id).once('value'); return s.exists(); }
+    catch(_){ console.warn('bulut yazılamadı',e); return false; }
+  }
+}
+async function bulutKuyrukGonder(){
+  if(!cloudOn||!BULUT_KUYRUK.length){ bulutDurumCiz(); return; }
+  if(kuyrukMesgul){ kuyrukTekrar=true; return; }
+  kuyrukMesgul=true; kuyrukTekrar=false;
   try{
-    note.mudur=CURRENT.ad; note.mudurId=CURRENT.mudurId||'patron';
-    await db.ref('kayitlar/'+note.id).set(note);
-  }catch(e){ console.warn('bulut yazılamadı',e); }
+    for(const p of BULUT_KUYRUK.slice()){
+      if(await bulutYaz(p)){
+        BULUT_KUYRUK=BULUT_KUYRUK.filter(x=>x.id!==p.id);
+        await Store.set('kuyruk',BULUT_KUYRUK);
+      }
+    }
+  }finally{
+    kuyrukMesgul=false;
+    bulutDurumCiz();
+    if(kuyrukTekrar)bulutKuyrukGonder();
+  }
+}
+/* Henüz gönderilmemiş bir kayıt değişirse kuyruktaki kopya da değişmeli;
+   silindiyse hiç gönderilmemeli. */
+async function kuyrukGuncelle(noteId){
+  const i=BULUT_KUYRUK.findIndex(p=>p.id===noteId);
+  if(i<0)return;
+  const n=NOTES.find(x=>x.id===noteId);
+  if(n&&(n.items||[]).length)BULUT_KUYRUK[i]=JSON.parse(JSON.stringify(n));
+  else BULUT_KUYRUK.splice(i,1);
+  await Store.set('kuyruk',BULUT_KUYRUK);
+  bulutDurumCiz();
+}
+function bulutDurumCiz(){
+  const box=document.getElementById('bulutDurum');
+  if(!box)return;
+  let h='';
+  if(cloudOn&&BULUT_KUYRUK.length)
+    h+='<div class="banner">⏳ <b>'+BULUT_KUYRUK.length+' kayıt buluta gönderilmeyi bekliyor.</b> '
+      +'Bu telefonda kayıtlı; internet gelince kendiliğinden gönderilecek.</div>';
+  if(yerUyari)
+    h+='<div class="banner">⚠️ Şantiye/halısaha ataması buluttan okunamadı.</div>';
+  box.innerHTML=h;
+}
+/* Kayıt ve müdürün verdiği borç aynı yoldan gider; kimin girdiği kayıt
+   oluşurken yazılır. Eskiden gönderirken yazılıyordu: aynı telefonda
+   sonradan başka biri girerse eski kayıt onun adına gidecekti. */
+async function pushCloudNote(note){
+  if(!CURRENT)return;
+  if(!note.mudurId){ note.mudur=CURRENT.ad; note.mudurId=CURRENT.mudurId||'patron'; }
+  await Store.set('notes',NOTES);
+  await buluta(note);
+}
+/* Patronun cihazında, müdürün buluta gönderdiği borcu alacak listesine
+   ekler. Patron sildiyse geri getirmez. Yeni bir şey eklendiyse true. */
+function buluttanAlacak(n){
+  if(SILINEN[n.id]==='*'||LOANS.some(l=>l.id===n.id))return false;
+  const tutar=Number(n.tutar);
+  if(!(tutar>0))return false;
+  LOANS.unshift({id:n.id,kisi:String(n.kisi||'').slice(0,80),tutar:tutar,
+    verildi:/^\d{4}-\d{2}-\d{2}$/.test(n.verildi||'')?n.verildi:String(n.createdAt||'').slice(0,10),
+    vade:/^\d{4}-\d{2}-\d{2}$/.test(n.vade||'')?n.vade:'',
+    alindi:false,alindiAt:'',kimden:String(n.mudur||'')});
+  return true;
 }
 
 /* ---------- storage (kalıcı; yoksa hafızada) ----------
@@ -1240,7 +1390,20 @@ async function autoSaveVoice(){
     const txt=document.getElementById('voiceText').value.trim();
     const lb=document.getElementById('liveBox');
     if(!txt){ if(lb)lb.style.display='none'; return; }
+    const iptal=(baslik,aciklama)=>{
+      if(lb){lb.style.display='block';
+        lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
+          +'<div style="font-weight:600">'+baslik+'</div>'
+          +'<div class="muted" style="margin-top:4px">'+aciklama+'</div></div>';
+        setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
+    };
     const sc=detectStockCommand(txt);
+    /* Stok sessizce değişmesin: yanlış eşleşme geri alınamayan bir hareket. */
+    if(sc&&!confirm('Stok '+(sc.type==='giris'?'girişi':'çıkışı')+' yapılsın mı?\n\n'
+                    +sc.item.name+' · '+(sc.type==='giris'?'+':'−')+sc.qty+' '+sc.item.unit)){
+      iptal('Stok değişmedi','Metin duruyor, düzeltip tekrar kaydedebilirsin.');
+      return;
+    }
     if(sc){
       const it=await applyStockCommand(sc);
       document.getElementById('voiceText').value='';
@@ -1253,13 +1416,6 @@ async function autoSaveVoice(){
       return;
     }
     const cozum=parseItems(txt);
-    const iptal=(baslik,aciklama)=>{
-      if(lb){lb.style.display='block';
-        lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;font-size:13px">'
-          +'<div style="font-weight:600">'+baslik+'</div>'
-          +'<div class="muted" style="margin-top:4px">'+aciklama+'</div></div>';
-        setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);}
-    };
     if(!cozum.length){
       iptal('Tutar bulunamadı','Duyulan: '+escapeHtml(txt)+' — içinde rakam geçmiyor.');
       return;
@@ -1917,6 +2073,8 @@ async function onaysizSil(){
   if(!n)return;
   if(!confirm(n+' onaylanmamış eski kayıt kalıcı olarak silinecek.\n\n'
              +'Zaten hiçbir toplama girmiyorlar. Devam edilsin mi?'))return;
+  onaysizNotes().forEach(x=>{ SILINEN[x.id]='*'; });
+  await Store.set('silinen',SILINEN);
   NOTES=onayliNotes();
   await Store.set('notes',NOTES);
   ayarCiz(); renderTable();
@@ -1990,10 +2148,12 @@ function ayarCiz(){
 async function delRow(noteId,idx){
   const n=NOTES.find(x=>x.id===noteId); if(!n)return;
   const it=(n.items||[])[idx]; if(!it)return;
-  if(!confirm('"'+(it.known||it.category)+' · '+money(it.amount)+'" silinsin mi?'))return;
+  if(!confirm('"'+(it.known||it.category)+' · '+money(it.amount)+'" silinsin mi?'+silmeNotu(noteId)))return;
+  await silindiIsaretle(noteId,it);
   n.items.splice(idx,1);
   if(!n.items.length&&!n.text)NOTES=NOTES.filter(x=>x.id!==noteId);
-  await Store.set('notes',NOTES); renderTable();
+  await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
+  renderTable(); renderSites(); renderFactory(); renderPitch();
 }
 
 function exportTableCSV(){
@@ -2111,7 +2271,12 @@ function findStockItem(text){
   });
   return score>0?best:null;
 }
+/* Para cümlesi stok komutu değildir. "Boya 5 bin lira verildi" eskiden
+   stoktaki boyadan 5000 birim düşüyor, gider hiç kaydedilmiyordu —
+   "verildi/geldi" hem stokta hem parada geçiyor. */
+const PARA_KELIMESI=/(^|[^a-zçğıöşü])(tl|lira|liralık|bin|milyon|milyar)(?![a-zçğıöşü])|₺/;
 function detectStockCommand(text){
+  if(PARA_KELIMESI.test(trLower(String(text))))return null;
   const t=trLower(wordsToNumbers(text));
   const isOut=OUT_W.some(w=>t.includes(w)), isIn=IN_W.some(w=>t.includes(w));
   if(!isOut&&!isIn)return null;
@@ -2136,7 +2301,7 @@ function backupAll(){
   const data={surum:1,tarih:new Date().toISOString(),
     notes:NOTES,payments:PAYMENTS,loans:LOANS,santiyeler:SANTIYELER,
     stock:STOCK,moves:MOVES,lexicon:LEXICON,
-    serbestYon:SERBEST_YON,settings:SETTINGS};
+    serbestYon:SERBEST_YON,settings:SETTINGS,silinen:SILINEN};
   saveBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),'Yedek_'+todayStr()+'.json');
   speak('Yedek alındı.','kayit');
 }
@@ -2153,6 +2318,10 @@ async function restoreBackup(ev){
       /* Serbest kategorilerin yönü de yedekten gelmeli; gelmezse eski
          yedekler yüklenince o kalemler borç tarafına düşer. */
       SERBEST_YON=d.serbestYon||{};
+      /* Silinenler yedekte yoksa (eski yedek) bu cihazdakiler korunur;
+         yoksa patronun sildikleri buluttan geri gelirdi. */
+      if(d.silinen)SILINEN=d.silinen;
+      await Store.set('silinen',SILINEN);
       await Store.set('notes',NOTES); await Store.set('payments',PAYMENTS);
       await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
@@ -2552,7 +2721,12 @@ function renderPayments(){
 }
 function fmtDate(iso){const d=new Date(iso+'T00:00');return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()}
 function daysUntil(iso){const a=new Date(todayStr()+'T00:00');const b=new Date(iso+'T00:00');return Math.round((b-a)/86400000)}
-async function delPay(id){PAYMENTS=PAYMENTS.filter(p=>p.id!==id);await Store.set('payments',PAYMENTS);renderPayments();}
+async function delPay(id){
+  const p=PAYMENTS.find(x=>x.id===id); if(!p)return;
+  if(!confirm('"'+p.title+'" çek kaydı silinsin mi?'))return;
+  PAYMENTS=PAYMENTS.filter(x=>x.id!==id);
+  await Store.set('payments',PAYMENTS); renderPayments();
+}
 
 /* ---------- ŞANTİYELER (yalnız patron) ----------
    Şantiye kaydın ÜZERİNE yazılmıyor; müdür–şantiye eşleşmesinden okunuyor.
@@ -2890,9 +3064,10 @@ function renderPitch(){
 async function pitchSil(noteId){
   const n=NOTES.find(x=>x.id===noteId); if(!n)return;
   const it=(n.items||[])[0];
-  if(!confirm('"'+(it?it.known+' · '+money(it.amount):'kayıt')+'" silinsin mi?'))return;
+  if(!confirm('"'+(it?it.known+' · '+money(it.amount):'kayıt')+'" silinsin mi?'+silmeNotu(noteId)))return;
+  await silindiIsaretle(noteId);
   NOTES=NOTES.filter(x=>x.id!==noteId);
-  await Store.set('notes',NOTES);
+  await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
   renderPitch(); renderTable();
 }
 
@@ -2905,10 +3080,10 @@ function renderFactory(){
 }
 
 /* ---------- VERİLEN BORÇLAR (ALACAKLAR) ----------
-   Yalnız bu cihazda tutuluyor — stok ve çekler gibi. Buluta yazılmıyor:
-   yayınlanmış veritabanı kuralları yalnız `kayitlar` düğümüne ve yalnız
-   EKLEMEYE izin veriyor; "geri alındı" işareti bir güncelleme olduğu için
-   kural değişikliği ister. */
+   Patronun listesi bu cihazda tutuluyor — stok ve çekler gibi. Müdürün
+   verdiği borç `kayitlar` düğümüne type:'alacak' olarak bir kez yazılıyor
+   ve patronun listesine ekleniyor; "geri alındı" işareti ise yalnız
+   patronun cihazında, çünkü kurallar bulutta güncellemeye izin vermiyor. */
 function payTab(hangi){
   const al=hangi==='al';
   document.getElementById('payOde').style.display=al?'none':'';
@@ -2961,6 +3136,8 @@ async function loanSil(id){
   const l=LOANS.find(x=>x.id===id); if(!l)return;
   if(!confirm('"'+l.kisi+' · '+money(l.tutar)+'" kaydı silinsin mi?'))return;
   LOANS=LOANS.filter(x=>x.id!==id);
+  /* Müdürden geldiyse buluttan geri gelmesin. */
+  await silindiIsaretle(id);
   await Store.set('loans',LOANS); renderLoans();
 }
 function renderLoans(){
@@ -2998,7 +3175,9 @@ function renderLoans(){
           +'<div class="muted" style="font-size:12px'+(gecti?';color:var(--danger)':'')+'">'+kalan+'</div>'
         : '<div style="font-size:13px;font-weight:600;margin-top:2px;color:var(--warn,#a9761e)">Vade girilmedi</div>'
           +'<div class="muted" style="font-size:12px">Vadesiz alacak takip edilemez.</div>')
-      +'<div class="muted para" style="font-size:11px;margin-top:3px">verildi '+fmtDate(l.verildi)
+      +'<div class="muted para" style="font-size:11px;margin-top:3px">'
+        +(l.kimden&&CURRENT&&l.kimden!==CURRENT.ad?escapeHtml(l.kimden)+' girdi · ':'')
+        +'verildi '+fmtDate(l.verildi)
         +(l.alindi&&l.alindiAt?' · alındı '+fmtDate(l.alindiAt):'')+'</div></div>'
       +'<div class="para" style="font-weight:700;white-space:nowrap">'+money(l.tutar)+'</div></div>'
       +'<div class="row" style="margin-top:8px">'
@@ -3047,7 +3226,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.1";
+const APP_VERSION="2026-10-09.2";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
@@ -3120,8 +3299,9 @@ async function boot(){
   bindHold(document.getElementById('micHero'),{});
   /* Uygulama arkadan öne gelince vadesi yaklaşan çekler yeniden bakılır. */
   document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='visible'&&CURRENT)checkReminders();
+    if(document.visibilityState==='visible'&&CURRENT){ checkReminders(); bulutKuyrukGonder(); }
   });
+  window.addEventListener('online',()=>{ if(CURRENT)bulutKuyrukGonder(); });
   initUpdates();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);
