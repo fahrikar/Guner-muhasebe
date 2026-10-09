@@ -194,6 +194,20 @@ else ok("dış script'lerin hepsi defer");
       ["yakıt 900 30 gün vadeli",           [["Yakıt",900]]],
       ["kira 15 bin 2 hafta içinde",        [["Kira",15000]]],
       ["nakliye 1200 bir yıl sonra",        [["Nakliye",1200]]],
+      /* Yıllı tarihler: "26 Kasım 2026'da" yılı ayrı bir "Verildi 2026 ₺"
+         kalemine dönüşüyordu. Ay adının önde olduğu biçim ("Ağustos 28'de")
+         ve tek başına yıl ("2026'da", "2026 yılında") da tutar değildir. */
+      ["Mehmet güner'e 25 milyon TL verildi 26 Kasım 2026'da geri alınacak",
+                                           [[null,25000000]]],
+      ["26 Kasım 2026 yakıt 900",           [["Yakıt",900]]],
+      ["kira 15 bin Kasım 2026",            [["Kira",15000]]],
+      ["Hamdiye'ye 26 milyon verildi Ağustos 28'de tekrar ödeyecek",
+                                           [[null,26000000]]],
+      ["2026'da elektrik 4200",             [["Elektrik",4200]]],
+      ["nakliye 1500 2026 yılında",         [["Nakliye",1500]]],
+      ["boya 2000 15.11.2026",              [["Boya Hammaddesi",2000]]],
+      /* Ay adı yalnız tarihse silinir: tutar ve sözcük içindeki ay korunur. */
+      ["kasım 50 bin kira",                 [["Kira",50000]]],
       /* Satış gelirdir, hammadde giderdir. Tek "söve" anahtarı yüzünden
          satışlar borç tarafına yazılıyordu. Son iki satır ayrımın hâlâ
          durduğunu tutuyor. */
@@ -236,6 +250,8 @@ else ok("dış script'lerin hepsi defer");
       ["Ahmet'e 75 bin çekle ödeme yapıldı",                  "borc",  75000,"",          "Ahmet"],
       ["tedarikçiye 200 bin çek yazdım",                      "borc",  200000,"",         ""],
       ["müşteriden gelen çek 40 bin tahsil edilecek",         "alacak",40000,"",          ""],
+      ["Ali'den 50 bin çek aldım 26 Kasım 2027'de",           "alacak",50000,"2027-11-26","Ali"],
+      ["Veli'ye 30 bin çek verdim Mart 15 2027",              "borc",  30000,"2027-03-15","Veli"],
     ];
     const degil=["Mehmet'e 10 milyon verildi 15 gün sonra alınacak","bankadan 5 bin para çektim",
                  "işçi ödemesi 12 bin verildi","yakıt 900","gelecek hafta 5000 ödeyecek",

@@ -1802,7 +1802,19 @@ const HARF='0-9a-zA-ZçğıöşüÇĞİÖŞÜ';
 const TARIH_KALIBI=new RegExp(
    'ay[ıi]n\\s*\\d{1,2}\\s*[\'’]?\\s*(?:s[ıiu]|s[ıi]n[dt][ae]|[ıi]n[dt][ae]|[ıi]nc[ıi]|inci)?(?!['+HARF+'])'
   +'|\\b\\d{1,2}\\s*[./]\\s*\\d{1,2}(?:\\s*[./]\\s*\\d{2,4})?\\b'
-  +'|\\b\\d{1,2}\\s*(?:'+AY_ADLARI+')[a-zçğıöşü]*(?!['+HARF+'])'
+  /* gün + ay (+ yıl): "26 Kasım", "26 Kasım 2026'da". Yıl ayrıca
+     temizlenmezse "Verildi 2026 ₺" diye bir kalem çıkıyordu. */
+  +'|\\b\\d{1,2}\\s*(?:'+AY_ADLARI+')[a-zçğıöşü]*'
+    +'(?:\\s*(?:19|20)\\d\\d(?:[\'’]?[a-zçğıöşü]+)?)?(?!['+HARF+'])'
+  /* ay önde: "Kasım 2026", "Ağustos 28'de". Ay adının önünde harf olmamalı
+     ("çekim"deki "ekim" ay değil) ve ardından bin/milyon gelirse sayı
+     tarih değil tutardır ("Kasım 50 bin"), dokunulmaz. */
+  +'|(?<!['+HARF+'])(?:'+AY_ADLARI+')[a-zçğıöşü]*\\s*'
+    +'(?:\\d{1,2}(?![\\d.,])(?!\\s*(?:bin|milyon|milyar))(?:[\'’]?[a-zçğıöşü]+)?'
+      +'(?:\\s*(?:19|20)\\d\\d(?:[\'’]?[a-zçğıöşü]+)?)?'
+    +'|(?:19|20)\\d\\d(?:[\'’]?[a-zçğıöşü]+)?)(?!['+HARF+'])'
+  /* tek başına yıl, ek ya da "yılında" ile: "2026'da", "2026 yılında" */
+  +'|\\b(?:19|20)\\d\\d(?:\\s*[\'’]\\s*[a-zçğıöşü]+|(?:da|de|ta|te)(?!['+HARF+'])|\\s+(?:yılı|yili|senesi)[a-zçğıöşü]*)'
   ,'gi');
 
 /* Süre ifadeleri: "15 gün sonra", "3 ay sonra", "2 hafta içinde", "bir yıl
@@ -1911,13 +1923,16 @@ function vadeCoz(text,bugun){
     }
   }
   // "26 Eylül'de" ve ters sırası "Ağustos 28'de" — ses tanıma ikisini de üretiyor
-  const ayli=t.match(new RegExp('(\\d{1,2})\\s*('+AY_ADLARI+')'))
-          ||(m=>m&&[m[0],m[2],m[1]])(t.match(new RegExp('('+AY_ADLARI+')\\s*(\\d{1,2})')));
+  /* Yıl söylendiyse o yıl ("26 Kasım 2027'de"); söylenmediyse bu yıl,
+     tarih geçmişse gelecek yıl. */
+  const YIL='(?:[a-zçğıöşü]*[\'’]?[a-zçğıöşü]*\\s*((?:19|20)\\d\\d))?';
+  const ayli=t.match(new RegExp('(\\d{1,2})\\s*('+AY_ADLARI+')'+YIL))
+          ||(m=>m&&[m[0],m[2],m[1],m[3]])(t.match(new RegExp('('+AY_ADLARI+')\\s*(\\d{1,2})(?![\\d.,])'+YIL)));
   if(ayli){
-    const gun=parseInt(ayli[1],10), ay=AY_SIRA[ayli[2]];
+    const gun=parseInt(ayli[1],10), ay=AY_SIRA[ayli[2]], yil=ayli[3]?parseInt(ayli[3],10):0;
     if(gun>=1&&gun<=31&&ay!==undefined){
-      let d=new Date(simdi.getFullYear(),ay,gun);
-      if(d<simdi)d=new Date(simdi.getFullYear()+1,ay,gun);   // geçmişse gelecek yıl
+      let d=new Date(yil||simdi.getFullYear(),ay,gun);
+      if(!yil&&d<simdi)d=new Date(simdi.getFullYear()+1,ay,gun);   // geçmişse gelecek yıl
       return isoGun(d);
     }
   }
@@ -3137,7 +3152,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.6";
+const APP_VERSION="2026-10-09.7";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
