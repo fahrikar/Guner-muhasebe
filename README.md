@@ -44,9 +44,14 @@ durmazlar:
 | **ALACAK** | giren para — tahsilat | yeşil |
 | **TANIMSIZ** | kategorisi tanınmayan; hiçbir tarafa ve Excel'e girmez | sarı |
 
-Her bloğun kendi çizgisi ve kendi toplamı var; altta **NET = alacak − borç**.
-Excel, CSV, Word ve PDF çıktıları da aynı ayrımı taşır (`Yön` kolonu +
-ayrı toplamlar + net).
+Her bloğun kendi çizgisi ve kendi toplamı var; altta borç ve alacağın farkı.
+
+**Excel şablonu** her çıktıda aynı (Tablo, Rapor, Tam Şablon): muhasebe
+defteri düzeni — `Tarih | Açıklama | Giren | Vade | Borç (₺) | Alacak (₺)`,
+altta **TOPLAM**, en altta tek **BAKİYE** satırı ("alacak fazlası" /
+"borç fazlası" ve tutarı fazla olan kolonda). İkinci sayfa **Özet**:
+kategori bazında aynı düzen. A4 dikeyde tek sayfa genişliğinde; borç
+kırmızı, alacak yeşil (xlsx-js-style).
 
 Bir kalem hangi tarafa düşüyor? `index.html` içindeki `CATEGORY_MAP`
 listesinde her kategorinin `yon` alanı var. Şu an **yalnız Tahsilat**
@@ -211,7 +216,7 @@ silinmeden önce kullanılmalı.
 ## Çevrimdışı çalışma ve kurulum
 
 Uygulama ana ekrana eklenebilir (PWA) ve internet olmadan açılır. Excel
-kütüphanesi (`xlsx.full.min.js`) repoda tutuluyor, bu yüzden **çevrimdışıyken
+kütüphanesi (`xlsx-style.min.js`) repoda tutuluyor, bu yüzden **çevrimdışıyken
 de Excel üretilebilir**. Ağ gerektiren işler:
 
 | İş | İnternet |
@@ -238,7 +243,7 @@ index.html              uygulamanın tamamı (HTML + CSS + JS)
 sw.js                   service worker — çevrimdışı çalışma + otomatik güncelleme
 manifest.webmanifest    ana ekrana kurulum
 icon.svg, icon-*.png    üretilmiş dosyalar — elle düzenlemeyin, npm run ikon
-xlsx.full.min.js        SheetJS 0.18.5, repoda tutuluyor (CDN yok)
+xlsx-style.min.js       xlsx-js-style 1.2.0 (SheetJS 0.18.5 + hücre biçimi), repoda (CDN yok)
 database.rules.json     Firebase güvenlik kuralları (yayınlanmalı)
 firebase.json           firebase deploy --only database için
 tools/                  geliştirme araçları (yayına etkisi yok)

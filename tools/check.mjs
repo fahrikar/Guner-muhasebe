@@ -88,11 +88,11 @@ if(manifest){
    CDN'e dönerse uygulama çevrimdışıyken Excel üretemez hâle gelir. */
 if(/<script[^>]+src="https?:[^"]*xlsx/i.test(html))
   bad("xlsx hâlâ CDN'den çekiliyor — çevrimdışıyken Excel üretilemez.");
-else if(!/<script[^>]+src="xlsx\.full\.min\.js"/.test(html))
-  bad("index.html yerel xlsx.full.min.js'e bağlı değil.");
+else if(!/<script[^>]+src="xlsx-style\.min\.js"/.test(html))
+  bad("index.html yerel xlsx-style.min.js'e bağlı değil.");
 else{
-  try{readFileSync(join(ROOT,"xlsx.full.min.js"));ok("xlsx repoda ve yerelden yükleniyor");}
-  catch{bad("xlsx.full.min.js repoda yok.");}
+  try{readFileSync(join(ROOT,"xlsx-style.min.js"));ok("xlsx repoda ve yerelden yükleniyor");}
+  catch{bad("xlsx-style.min.js repoda yok.");}
 }
 
 /* 7 — PIN'ler kaynağa geri sızmasın.

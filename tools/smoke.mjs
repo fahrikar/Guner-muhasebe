@@ -768,8 +768,8 @@ try{
     XLSX.write=orj;
     return JSON.stringify(sheets);
   });
-  check("Excel'de borç/alacak blokları ve net var",
-    excelYon.includes("BORÇ")&&excelYon.includes("ALACAK")&&excelYon.includes("NET"),
+  check("Excel'de borç ve alacak ayrı kolonlarda, bakiye satırı var",
+    excelYon.includes("Borç (₺)")&&excelYon.includes("Alacak (₺)")&&excelYon.includes("BAKİYE")&&!excelYon.includes("NET"),
     excelYon.slice(0,200));
 
   /* --- kayıt sonrası sesli teyit kapalı --- */
@@ -857,7 +857,7 @@ try{
 
   /* 11 — Excel kütüphanesi repodan geliyor (çevrimdışı Excel için şart) */
   check("xlsx yerelden yükleniyor",
-    await page.evaluate(()=>[...document.scripts].some(s=>/^\/?xlsx\.full\.min\.js$/.test(
+    await page.evaluate(()=>[...document.scripts].some(s=>/^\/?xlsx-style\.min\.js$/.test(
       new URL(s.src||"x:/",location.href).pathname.replace(/^\//,"")))));
 
   /* 12 — service worker devralıyor ve uygulama çevrimdışı açılıyor */
@@ -1095,6 +1095,30 @@ try{
       mergeCloudNotes([{id:777101,type:'cek',yon:'borc',createdAt:'x',kisi:'Veli',tutar:80000,vade:'2030-02-01'}]);
       return !PAYMENTS.some(x=>x.id===777101);
     }));
+  /* 25 — Excel şablonu: sabit kolonlar, vade, TOPLAM ve tek BAKİYE satırı */
+  check("Excel defter şablonu sabit düzende",
+    await page.evaluate(async()=>{
+      const eskiN=NOTES, eskiS=saveBlob; let blob=null;
+      NOTES=[{id:9901,onayli:true,createdAt:'2026-10-09T11:45:00Z',mudur:'Test',vade:'2026-11-26',
+              items:[{known:'Tahsilat',amount:12000,grup:'Gelir'}]},
+             {id:9902,onayli:true,createdAt:'2026-10-08T08:00:00Z',
+              items:[{known:'Yakıt',amount:2500,grup:'Gider'}]}];
+      saveBlob=b=>{blob=b;return true;};
+      try{ exportTable(); }finally{ NOTES=eskiN; saveBlob=eskiS; }
+      const wb=XLSX.read(new Uint8Array(await blob.arrayBuffer()),{type:'array'});
+      const a=XLSX.utils.sheet_to_json(wb.Sheets['Defter'],{header:1,raw:false,defval:''})
+                  .filter(r=>r.some(Boolean));
+      const bi=a.findIndex(r=>r[0]==='Tarih');
+      const bas=bi>=0?a[bi].join('|'):'', son=a[a.length-1][0], top=a[a.length-2][0];
+      const vadeli=a.slice(bi+1).find(r=>r[1]==='Tahsilat')||[];
+      window.__excelTani=JSON.stringify(a);
+      return wb.SheetNames.join(',')==='Defter,Özet'
+        &&bas==='Tarih|Açıklama|Giren|Vade|Borç (₺)|Alacak (₺)'
+        /* Kütüphane kendi yazdığı tarih biçimini okurken ham seri sayı
+           döndürüyor; dosyada hücre tarih biçimli (Excel'de 26.11.2026). */
+        &&Number(vadeli[3])===excelSeri(new Date('2026-11-26T00:00'))
+        &&top==='TOPLAM'&&son==='BAKİYE — alacak fazlası';
+    }),await page.evaluate(()=>window.__excelTani||''));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

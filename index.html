@@ -21,7 +21,7 @@
      işler için (bulut, OCR) ya da ikincil (PDF), CDN'de bırakıldı.
      defer: ~2 MB'lık kütüphane ilk çizimi bekletmesin — eskiden hepsi
      engelleyici yükleniyordu ve zayıf hatta ekran uzun süre boş kalıyordu. -->
-<script src="xlsx.full.min.js" defer></script>
+<script src="xlsx-style.min.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
@@ -2045,7 +2045,7 @@ function allItems(notes,includeUnknown){
   const out=[];
   notes.forEach(n=>(n.items||[]).forEach(it=>{
     if(!includeUnknown&&!it.known)return;
-    out.push(Object.assign({},it,{createdAt:n.createdAt,vade:n.vade||''}));
+    out.push(Object.assign({},it,{createdAt:n.createdAt,vade:n.vade||'',mudur:n.mudur||''}));
   }));
   return out;
 }
@@ -2306,15 +2306,108 @@ async function delRow(noteId,idx){
   renderTable(); renderSites(); renderFactory(); renderPitch();
 }
 
+/* ---------- EXCEL ŞABLONU (DEFTER) ----------
+   Bütün Excel çıktıları aynı düzende: muhasebe defteri gibi sabit kolonlar,
+   borç ve alacak AYRI kolonlarda, altta TOPLAM, en altta tek BAKİYE satırı.
+   Eskiden başlıklar veri satırlarına karışıyor, "NET (alacak − borç)" eksi
+   işaretli bir sayı gösteriyordu; sütun düzeni de çıktıdan çıktıya
+   değişiyordu. Tablo, Rapor ve Tam Şablon artık aynı iki sayfayı üretir:
+   DEFTER (kayıt kayıt) ve ÖZET (kategori kategori). */
+/* Grup kolonu yok: çoğu satırda "Serbest/Gider" tekrarı, Özet'te zaten var.
+   Kolonlar dar tutuldu ki A4 dikeyde tek sayfaya sığsın. */
+const DEFTER_KOLON=['Tarih','Açıklama','Giren','Vade','Borç (₺)','Alacak (₺)'];
+const TL_BICIM='#,##0.00';
+const XS={  // hücre biçimleri (xlsx-js-style)
+  baslik:{font:{bold:true,sz:14}},
+  alt:{font:{color:{rgb:'6E6A63'},sz:10}},
+  kolon:{font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D1D1F'}},
+         alignment:{vertical:'center'},border:{bottom:{style:'thin',color:{rgb:'1D1D1F'}}}},
+  borc:{font:{color:{rgb:'B23B34'}}},
+  alacak:{font:{color:{rgb:'2E7D32'}}},
+  toplam:{font:{bold:true},fill:{fgColor:{rgb:'F2EBDD'}},border:{top:{style:'thin',color:{rgb:'1D1D1F'}}}},
+  bakiye:{font:{bold:true,sz:12},fill:{fgColor:{rgb:'E8E0CF'}},border:{top:{style:'double',color:{rgb:'1D1D1F'}}}}
+};
+/* Bakiye tek cümle: hangi taraf fazla ve ne kadar. Eksi işaretli "net"
+   yerine muhasebedeki okunuşu. */
+function bakiyeMetni(tBorc,tAlacak,tutarli){
+  const f=tAlacak-tBorc;
+  if(Math.abs(f)<0.005)return 'BAKİYE — denk (borç = alacak)';
+  return 'BAKİYE — '+(f>0?'alacak fazlası':'borç fazlası')+(tutarli?' '+money(Math.abs(f)):'');
+}
+function excelSeri(d){
+  return (Date.UTC(d.getFullYear(),d.getMonth(),d.getDate(),d.getHours(),d.getMinutes())
+          -Date.UTC(1899,11,30))/864e5;
+}
+function defterSatirlari(its){
+  return its.slice().sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt))).map(i=>{
+    const al=yonOf(i.known)==='alacak';
+    return {tarih:new Date(i.createdAt),aciklama:i.known||i.category||'',grup:i.grup||'',
+            giren:i.mudur||'',vade:i.vade||'',borc:al?0:i.amount,alacak:al?i.amount:0};
+  });
+}
+/* Ortak sayfa kurucu: başlık + alt başlık + kolonlar + satırlar + TOPLAM +
+   BAKİYE. tutarKolonlari: [borç, alacak] kolon sırası. */
+function defterKur(baslik,altBaslik,kolonlar,satirlar,genislik,tutarKolon){
+  const ws={}; const K=kolonlar.length, son=K-1;
+  const yaz=(r,c,hucre)=>{ ws[XLSX.utils.encode_cell({r,c})]=hucre; };
+  const metin=(v,st)=>({t:'s',v:String(v==null?'':v),s:st||{}});
+  yaz(0,0,metin(baslik,XS.baslik));
+  yaz(1,0,metin(altBaslik,XS.alt));
+  kolonlar.forEach((k,c)=>yaz(3,c,metin(k,XS.kolon)));
+  let r=4;
+  satirlar.forEach(sat=>{ sat.forEach((h,c)=>{ if(h)yaz(r,c,h); }); r++; });
+  const ilk=5, sonVeri=r;                   // Excel satır numaraları (1 tabanlı)
+  const [bK,aK]=tutarKolon;
+  const harf=c=>XLSX.utils.encode_col(c);
+  let tB=0,tA=0;
+  satirlar.forEach(sat=>{ tB+=(sat[bK]&&sat[bK].v)||0; tA+=(sat[aK]&&sat[aK].v)||0; });
+  for(let c=0;c<K;c++)yaz(r,c,metin('',XS.toplam));
+  yaz(r,0,metin('TOPLAM',XS.toplam));
+  const topHucre=(c,v)=>Object.assign({t:'n',v:v,z:TL_BICIM,s:XS.toplam},
+    satirlar.length?{f:'SUM('+harf(c)+ilk+':'+harf(c)+sonVeri+')'}:{});
+  yaz(r,bK,topHucre(bK,tB)); yaz(r,aK,topHucre(aK,tA));
+  r++;
+  for(let c=0;c<K;c++)yaz(r,c,metin('',XS.bakiye));
+  yaz(r,0,metin(bakiyeMetni(tB,tA),XS.bakiye));
+  const f=tA-tB;
+  if(Math.abs(f)>=0.005)yaz(r,f>0?aK:bK,{t:'n',v:Math.abs(f),z:TL_BICIM,s:XS.bakiye});
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:r,c:son}});
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:son}},{s:{r:1,c:0},e:{r:1,c:son}},
+                 {s:{r:r,c:0},e:{r:r,c:Math.min(bK,aK)-1}}];
+  ws['!cols']=genislik.map(w=>({wch:w}));
+  ws['!margins']={left:0.4,right:0.4,top:0.5,bottom:0.5,header:0.3,footer:0.3};   // A4'e sığsın
+  if(satirlar.length)ws['!autofilter']={ref:'A4:'+harf(son)+sonVeri};
+  return ws;
+}
+function defterSayfasi(its,baslik){
+  const satirlar=defterSatirlari(its).map(d=>[
+    {t:'n',v:excelSeri(d.tarih),z:'dd.mm.yyyy'},
+    {t:'s',v:d.aciklama},{t:'s',v:d.giren},
+    d.vade?{t:'n',v:excelSeri(new Date(d.vade+'T00:00')),z:'dd.mm.yyyy'}:null,
+    d.borc?{t:'n',v:d.borc,z:TL_BICIM,s:XS.borc}:null,
+    d.alacak?{t:'n',v:d.alacak,z:TL_BICIM,s:XS.alacak}:null]);
+  return defterKur(baslik,'Oluşturma: '+fmt(new Date().toISOString())+' · '+its.length+' kalem',
+    DEFTER_KOLON,satirlar,[10,26,12,10,14,14],[4,5]);
+}
+function ozetSayfasi(its,baslik){
+  const satirlar=groupItems(its).map(g=>{
+    const al=yonOf(g.category)==='alacak';
+    return [{t:'s',v:g.category},{t:'s',v:g.grup||''},{t:'n',v:g.count},
+            al?null:{t:'n',v:g.total,z:TL_BICIM,s:XS.borc},
+            al?{t:'n',v:g.total,z:TL_BICIM,s:XS.alacak}:null];
+  });
+  return defterKur(baslik,'Kategori bazında toplamlar · '+its.length+' kalem',
+    ['Kategori','Grup','Kayıt','Borç (₺)','Alacak (₺)'],satirlar,[26,18,6,14,14],[3,4]);
+}
 function exportTableCSV(){
   const its=allItems(onayliNotes());
   if(!its.length){alert('Tanımlı kalem yok.');return;}
+  const satir=defterSatirlari(its);
+  const rows=satir.map(d=>({Tarih:fmtDate(todayStr(d.tarih)),Açıklama:d.aciklama,Giren:d.giren,
+    Vade:d.vade?fmtDate(d.vade):'',Borç:d.borc||'',Alacak:d.alacak||''}));
   const y=yonAyir(its);
-  const rows=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
-                          Kategori:i.known,Grup:i.grup,Tutar:i.amount,Vade:i.vade?fmtDate(i.vade):''}));
-  rows.push({Tarih:'',Yön:'',Kategori:'BORÇ TOPLAMI',Grup:'',Tutar:y.tBorc});
-  rows.push({Tarih:'',Yön:'',Kategori:'ALACAK TOPLAMI',Grup:'',Tutar:y.tAlacak});
-  rows.push({Tarih:'',Yön:'',Kategori:'NET',Grup:'',Tutar:y.net});
+  rows.push({Tarih:'TOPLAM',Açıklama:'',Giren:'',Vade:'',Borç:y.tBorc,Alacak:y.tAlacak});
+  rows.push({Tarih:bakiyeMetni(y.tBorc,y.tAlacak,true),Açıklama:'',Giren:'',Vade:'',Borç:'',Alacak:''});
   exportCSV(rows,'Tablo_'+todayStr()+'.csv');
 }
 function exportTable(){
@@ -2322,29 +2415,8 @@ function exportTable(){
   if(!its.length){alert('Tanımlı kalem yok.');return;}
   if(!xlsxHazir())return false;
   const wb=XLSX.utils.book_new();
-  const y=yonAyir(its);
-  /* Borç ve alacak ayrı bloklar hâlinde, aralarında boş satır ve kendi
-     toplamlarıyla; en altta net. Tek bir TOPLAM iki tarafı topluyordu. */
-  const blokSatirlari=(baslik,liste,toplam)=>{
-    if(!liste.length)return [];
-    return [{Tarih:baslik,Kategori:'',Grup:'','Tutar (₺)':''}]
-      .concat(liste.map(i=>({Tarih:fmt(i.createdAt),Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,
-                              Vade:i.vade?fmtDate(i.vade):''})))
-      .concat([{Tarih:'',Kategori:baslik+' TOPLAMI',Grup:'','Tutar (₺)':toplam},
-               {Tarih:'',Kategori:'',Grup:'','Tutar (₺)':''}]);
-  };
-  const det=blokSatirlari('BORÇ (çıkan)',y.borc,y.tBorc)
-    .concat(blokSatirlari('ALACAK (giren)',y.alacak,y.tAlacak))
-    .concat([{Tarih:'',Kategori:'NET (alacak − borç)',Grup:'','Tutar (₺)':y.net}]);
-  const ws=XLSX.utils.json_to_sheet(det); ws['!cols']=[{wch:18},{wch:26},{wch:26},{wch:14}];
-  XLSX.utils.book_append_sheet(wb,ws,'Tablo');
-  const g=groupItems(its).map(x=>({Kategori:x.category,Yön:YON_AD[yonOf(x.category)]||'Borç',
-                                   Grup:x.grup,Adet:x.count,Toplam:x.total}));
-  g.push({Kategori:'BORÇ TOPLAMI',Yön:'',Grup:'',Adet:y.borc.length,Toplam:y.tBorc});
-  g.push({Kategori:'ALACAK TOPLAMI',Yön:'',Grup:'',Adet:y.alacak.length,Toplam:y.tAlacak});
-  g.push({Kategori:'NET',Yön:'',Grup:'',Adet:'',Toplam:y.net});
-  const ws2=XLSX.utils.json_to_sheet(g); ws2['!cols']=[{wch:24},{wch:10},{wch:26},{wch:10},{wch:16}];
-  XLSX.utils.book_append_sheet(wb,ws2,'Özet');
+  XLSX.utils.book_append_sheet(wb,defterSayfasi(its,'GÜNER — KAYIT DEFTERİ'),'Defter');
+  XLSX.utils.book_append_sheet(wb,ozetSayfasi(its,'GÜNER — KATEGORİ ÖZETİ'),'Özet');
   return writeWorkbook(wb,'Tablo_'+todayStr()+'.xlsx');
 }
 /* String olmayan değerlerde (undefined birim, sayısal miktar…) eskiden
@@ -2529,19 +2601,11 @@ function exportReport(t){
   const title=(curReport==='week'?'Haftalik':'Aylik')+'_Rapor_'+todayStr();
   if(t==='excel'){
     if(!xlsxHazir())return false;
-    const its=allItems(list), groups=groupItems(its);
+    const its=allItems(list);
     const wb=XLSX.utils.book_new();
-    const yr=yonAyir(its);
-    const sum=groups.map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                              'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
-    sum.push({Kategori:'BORÇ TOPLAMI',Yön:'','Kayıt Adedi':yr.borc.length,'Toplam Tutar':yr.tBorc});
-    sum.push({Kategori:'ALACAK TOPLAMI',Yön:'','Kayıt Adedi':yr.alacak.length,'Toplam Tutar':yr.tAlacak});
-    sum.push({Kategori:'NET',Yön:'','Kayıt Adedi':'','Toplam Tutar':yr.net});
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum),'Özet');
-    const det=[];
-    groups.forEach(g=>g.items.forEach(i=>det.push({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                                                   Tutar:i.amount,Tarih:fmt(i.createdAt),Vade:i.vade?fmtDate(i.vade):'',Metin:i.raw})));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det.length?det:[{Kategori:'',Tutar:'',Tarih:'',Metin:''}]),'Detay');
+    const ad=curReport==='week'?'HAFTALIK RAPOR (son 7 gün)':'AYLIK RAPOR (bu ay)';
+    XLSX.utils.book_append_sheet(wb,defterSayfasi(its,'GÜNER — '+ad),'Defter');
+    XLSX.utils.book_append_sheet(wb,ozetSayfasi(its,'GÜNER — '+ad+' · ÖZET'),'Özet');
     return writeWorkbook(wb,title+'.xlsx');
   }
   const _its=allItems(list), _g=groupItems(_its), _y=yonAyir(_its);
@@ -2579,52 +2643,26 @@ function exportFullTemplate(){
   const month=onayliNotes().filter(n=>new Date(n.createdAt)>=new Date(now.getFullYear(),now.getMonth(),1));
   const wIts=allItems(week), mIts=allItems(month);
 
-  /* 1) KAPAK / ÖZET */
-  const kapak=[
-    {Alan:'Rapor Adı',Değer:'İşletme Takip Şablonu'},
-    {Alan:'Oluşturma Tarihi',Değer:fmt(now.toISOString())},
-    {Alan:'Toplam Kayıt',Değer:onayliNotes().length},
-    {Alan:'Tanımlı Kalem',Değer:its.length},
-    {Alan:'Haftalık Net (₺)',Değer:yonAyir(wIts).net},
-    {Alan:'Aylık Net (₺)',Değer:yonAyir(mIts).net},
-    {Alan:'Toplam Borç — çıkan (₺)',Değer:yonAyir(its).tBorc},
-    {Alan:'Toplam Alacak — giren (₺)',Değer:yonAyir(its).tAlacak},
-    {Alan:'Genel Net (₺)',Değer:yonAyir(its).net},
-    {Alan:'Bekleyen Çek Adedi',Değer:PAYMENTS.filter(p=>daysUntil(p.dueDate)>=0).length}
-  ];
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(kapak),[26,22]),'Kapak');
+  /* 1) KAPAK — her dönemin bakiyesi tek cümle */
+  const yW=yonAyir(wIts), yM=yonAyir(mIts), yA=yonAyir(its);
+  const kapak=defterKur('GÜNER — İŞLETME TAKİP ŞABLONU','Oluşturma: '+fmt(now.toISOString()),
+    ['Dönem','Kalem','Borç (₺)','Alacak (₺)','Bakiye'],
+    [['Son 7 gün',wIts,yW],['Bu ay',mIts,yM],['Tümü',its,yA]].map(([ad,l,y])=>[
+      {t:'s',v:ad},{t:'n',v:l.length},{t:'n',v:y.tBorc,z:TL_BICIM,s:XS.borc},
+      {t:'n',v:y.tAlacak,z:TL_BICIM,s:XS.alacak},{t:'s',v:bakiyeMetni(y.tBorc,y.tAlacak,true).replace('BAKİYE — ','')}]),
+    [14,8,18,18,34],[2,3]);
+  /* Kapakta dönemler alt alta: TOPLAM/BAKİYE satırı anlamsız, kaldır. */
+  const kRef=XLSX.utils.decode_range(kapak['!ref']);
+  for(let c=0;c<=kRef.e.c;c++){ delete kapak[XLSX.utils.encode_cell({r:kRef.e.r,c})]; delete kapak[XLSX.utils.encode_cell({r:kRef.e.r-1,c})]; }
+  kRef.e.r-=2; kapak['!ref']=XLSX.utils.encode_range(kRef);
+  kapak['!merges']=kapak['!merges'].slice(0,2);
+  XLSX.utils.book_append_sheet(wb,kapak,'Kapak');
 
-  /* 2) KATEGORİ ÖZETİ */
-  const yAll=yonAyir(its);
-  const ozet=groups.map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                             Grup:g.grup,'Kayıt Adedi':g.count,'Toplam Tutar':g.total}));
-  ozet.push({Kategori:'BORÇ TOPLAMI',Yön:'',Grup:'','Kayıt Adedi':yAll.borc.length,'Toplam Tutar':yAll.tBorc});
-  ozet.push({Kategori:'ALACAK TOPLAMI',Yön:'',Grup:'','Kayıt Adedi':yAll.alacak.length,'Toplam Tutar':yAll.tAlacak});
-  ozet.push({Kategori:'NET',Yön:'',Grup:'','Kayıt Adedi':'','Toplam Tutar':yAll.net});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(ozet),[24,10,26,12,16]),'Kategori Özeti');
-
-  /* 3) HAFTALIK */
-  const yhg=yonAyir(wIts);
-  const hg=groupItems(wIts).map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                                   Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
-  hg.push({Kategori:'BORÇ',Yön:'',Grup:'',Adet:yhg.borc.length,'Toplam Tutar':yhg.tBorc});
-  hg.push({Kategori:'ALACAK',Yön:'',Grup:'',Adet:yhg.alacak.length,'Toplam Tutar':yhg.tAlacak});
-  hg.push({Kategori:'NET',Yön:'',Grup:'',Adet:'','Toplam Tutar':yhg.net});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(hg),[24,10,26,10,16]),'Haftalık Rapor');
-
-  /* 4) AYLIK */
-  const ymg=yonAyir(mIts);
-  const mg=groupItems(mIts).map(g=>({Kategori:g.category,Yön:YON_AD[yonOf(g.category)]||'Borç',
-                                   Grup:g.grup,Adet:g.count,'Toplam Tutar':g.total}));
-  mg.push({Kategori:'BORÇ',Yön:'',Grup:'',Adet:ymg.borc.length,'Toplam Tutar':ymg.tBorc});
-  mg.push({Kategori:'ALACAK',Yön:'',Grup:'',Adet:ymg.alacak.length,'Toplam Tutar':ymg.tAlacak});
-  mg.push({Kategori:'NET',Yön:'',Grup:'',Adet:'','Toplam Tutar':ymg.net});
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(mg),[24,10,26,10,16]),'Aylık Rapor');
-
-  /* 5) HAREKET DETAYI */
-  const det=its.map(i=>({Tarih:fmt(i.createdAt),Yön:YON_AD[yonOf(i.known)],
-                         Kategori:i.known,Grup:i.grup,'Tutar (₺)':i.amount,Vade:i.vade?fmtDate(i.vade):'',Kaynak:i.raw}));
-  XLSX.utils.book_append_sheet(wb,W(XLSX.utils.json_to_sheet(det.length?det:[{Tarih:'',Yön:'',Kategori:'',Grup:'','Tutar (₺)':'',Kaynak:''}]),[18,10,22,26,14,34]),'Hareket Detayı');
+  /* 2-5) Aynı defter ve özet şablonu */
+  XLSX.utils.book_append_sheet(wb,defterSayfasi(its,'GÜNER — KAYIT DEFTERİ (tümü)'),'Defter');
+  XLSX.utils.book_append_sheet(wb,ozetSayfasi(its,'GÜNER — KATEGORİ ÖZETİ (tümü)'),'Kategori Özeti');
+  XLSX.utils.book_append_sheet(wb,ozetSayfasi(wIts,'GÜNER — HAFTALIK (son 7 gün)'),'Haftalık');
+  XLSX.utils.book_append_sheet(wb,ozetSayfasi(mIts,'GÜNER — AYLIK (bu ay)'),'Aylık');
 
   /* 6) ÇEK ÖDEMELERİ */
   const cek=PAYMENTS.map(p=>({Açıklama:p.title,Tutar:p.amount||'','Vade Tarihi':fmtDate(p.dueDate),
@@ -3224,7 +3262,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.10";
+const APP_VERSION="2026-10-09.11";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
