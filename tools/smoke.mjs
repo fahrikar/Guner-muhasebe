@@ -960,6 +960,17 @@ try{
       return !LOANS.some(x=>x.id===777005);
     }));
 
+  /* 21 — eski stok verisi açılışta siliniyor, yedeğe girmiyor */
+  check("eski stok verisi açılışta siliniyor",
+    await page.evaluate(async()=>{
+      localStorage.setItem('gm_stock','[{"id":1,"name":"Boya"}]');
+      localStorage.setItem('gm_moves','[{"id":1}]');
+      localStorage.setItem('gm_settings','{"kayit":true,"stok":true,"anomali":false}');
+      await stokVerisiniSil();
+      const ayar=JSON.parse(localStorage.getItem('gm_settings'));
+      return localStorage.getItem('gm_stock')===null&&localStorage.getItem('gm_moves')===null
+        &&!('stok'in ayar)&&ayar.anomali===false;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

@@ -14,8 +14,8 @@ Excel/CSV olarak dışa aktar. Tek dosyalık web uygulaması — build adımı y
 4. **Rapor**, **Çekler**, **Şantiye**, **Fabrika** ekranları (yalnız patron).
 5. Excel / CSV çıktısı her ekranın kendi düğmesinden alınır.
 
-Stok bölümü kaldırıldı. Daha önce girilmiş stok verisi silinmedi; telefonda
-duruyor ve **Yedek Al** dosyasına girmeye devam ediyor.
+Stok bölümü verisiyle birlikte kaldırıldı: telefonlardaki eski stok
+kayıtları uygulama açılınca silinir, yedeğe girmez.
 
 ## Borç / Alacak
 

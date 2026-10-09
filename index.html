@@ -726,8 +726,6 @@ async function loadAll(){
   LEXICON=await Store.get('lexicon',[]);
   SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
-  STOCK=await Store.get('stock',[]);
-  MOVES=await Store.get('moves',[]);
   SILINEN=await Store.get('silinen',{})||{};
   BULUT_KUYRUK=await Store.get('kuyruk',[])||[];
 }
@@ -736,7 +734,7 @@ function logout(){
   stopCloud();
   /* Ekranda kalan veri bir sonraki kullanıcıya görünmesin: patron çıkıp
      müdür girdiğinde birleştirilmiş bulut kayıtları ortada kalıyordu. */
-  CURRENT=null; NOTES=[]; PAYMENTS=[]; STOCK=[]; MOVES=[];
+  CURRENT=null; NOTES=[]; PAYMENTS=[];
   stopVoice();
   stopCam();
   showLogin();
@@ -1221,6 +1219,10 @@ const Store={
     mem[k]=v;
     try{ localStorage.setItem(STORE_PREFIX+k,JSON.stringify(v)); return true; }
     catch(e){ storageWarn(); return false; }
+  },
+  del(k){
+    delete mem[k];
+    try{ localStorage.removeItem(STORE_PREFIX+k); }catch(e){}
   }
 };
 let NOTES=[], PAYMENTS=[], LOANS=[], SANTIYELER=[];
@@ -2210,7 +2212,7 @@ function dl(blob,name){const a=document.createElement('a');a.href=URL.createObje
 function backupAll(){
   const data={surum:1,tarih:new Date().toISOString(),
     notes:NOTES,payments:PAYMENTS,loans:LOANS,santiyeler:SANTIYELER,
-    stock:STOCK,moves:MOVES,lexicon:LEXICON,
+    lexicon:LEXICON,
     serbestYon:SERBEST_YON,settings:SETTINGS,silinen:SILINEN};
   saveBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),'Yedek_'+todayStr()+'.json');
   speak('Yedek alındı.','kayit');
@@ -2223,7 +2225,6 @@ async function restoreBackup(ev){
       const d=JSON.parse(r.result);
       if(!confirm('Yedek yüklenecek ve mevcut veriler değişecek.\n\nYedek tarihi: '+(d.tarih?fmt(d.tarih):'bilinmiyor')+'\nKayıt: '+((d.notes||[]).length)+'\n\nDevam edilsin mi?'))return;
       NOTES=d.notes||[]; PAYMENTS=d.payments||[]; LOANS=d.loans||[]; SANTIYELER=d.santiyeler||[];
-      STOCK=d.stock||[]; MOVES=d.moves||[];
       LEXICON=d.lexicon||[]; SETTINGS=Object.assign({},SES_VARSAYILAN,d.settings||{});
       /* Serbest kategorilerin yönü de yedekten gelmeli; gelmezse eski
          yedekler yüklenince o kalemler borç tarafına düşer. */
@@ -2233,7 +2234,6 @@ async function restoreBackup(ev){
       if(d.silinen)SILINEN=d.silinen;
       await Store.set('silinen',SILINEN);
       await Store.set('notes',NOTES); await Store.set('payments',PAYMENTS);
-      await Store.set('stock',STOCK); await Store.set('moves',MOVES);
       await Store.set('lexicon',LEXICON); await Store.set('settings',SETTINGS);
       await Store.set('serbestYon',SERBEST_YON); await Store.set('loans',LOANS);
       await Store.set('santiyeler',SANTIYELER);
@@ -2357,10 +2357,14 @@ function exportReport(t){
 
 
 /* ---------- STOK (kaldırıldı) ----------
-   Stok ekranı ve sesli stok komutu uygulamadan çıkarıldı. Daha önce girilmiş
-   stok verisi silinmedi: telefonda duruyor ve "Yedek Al" dosyasına girmeye
-   devam ediyor, ileride geri açılırsa kaybolmamış olsun. */
-let STOCK=[], MOVES=[];
+   Stok bölümü ve verisi tamamen kaldırıldı. Telefonlarda kalan eski stok
+   kayıtları açılışta silinir (stokVerisiniSil); yedeğe de girmez, eski bir
+   yedek geri yüklenirse içindeki stok yok sayılır. */
+async function stokVerisiniSil(){
+  Store.del('stock'); Store.del('moves');
+  const ayar=await Store.get('settings',null);
+  if(ayar&&'stok'in ayar){ delete ayar.stok; await Store.set('settings',ayar); }
+}
 
 
 /* ---------- TAM EXCEL ŞABLONU ---------- */
@@ -3007,7 +3011,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.3";
+const APP_VERSION="2026-10-09.4";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
@@ -3061,6 +3065,7 @@ async function boot(){
      Bildirim izni de açılışta değil, ilk çek eklendiğinde isteniyor —
      uygulamayı ilk açan kişiye sebepsiz izin kutusu çıkıyordu. */
   /* Kişiye özel PIN değişiklikleri (varsa) taban listenin üzerine bindirilir. */
+  await stokVerisiniSil();
   PIN_OVERRIDES=await Store.get('pins',{})||{};
   applyPinOverrides();
 
