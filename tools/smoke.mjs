@@ -70,6 +70,8 @@ async function setupPins(temizle){
                 {rol:'mudur', ad:'Test Müdür 2',mudurId:'m2',hash:await pinHash(m2)}];
     if(t){PIN_OVERRIDES={};await Store.set('pins',{});}
     applyPinOverrides();
+    /* Testler sabit küçük kimlikli bulut kayıtları kullanıyor. */
+    VERI_BASLANGIC=0;
   },[TEST_PATRON,TEST_MUDUR,TEST_MUDUR2,!!temizle]);
 }
 /* Her kayıt artık onay penceresinden geçiyor. Kaydetme çağrıları
@@ -1119,6 +1121,35 @@ try{
         &&Number(vadeli[3])===excelSeri(new Date('2026-11-26T00:00'))
         &&top==='TOPLAM'&&son==='BAKİYE — alacak fazlası';
     }),await page.evaluate(()=>window.__excelTani||''));
+  /* 26 — teslim: eski bulut kayıtları görünmüyor, cihaz bir kez temizleniyor */
+  check("teslimden önceki bulut kaydı görünmüyor",
+    await page.evaluate(()=>{
+      const e=VERI_BASLANGIC; VERI_BASLANGIC=Date.parse('2026-10-09T13:38:00Z');
+      mergeCloudNotes([{id:Date.parse('2026-10-09T10:00:00Z'),type:'voice',onayli:true,createdAt:'x',
+        items:[{known:'Yakıt',amount:123456,grup:'Gider'}]}]);
+      VERI_BASLANGIC=e;
+      return !NOTES.some(n=>n.items&&n.items.some(i=>i.amount===123456));
+    }));
+  check("teslim temizliği bir kez çalışıyor",
+    await page.evaluate(async()=>{
+      const e=VERI_BASLANGIC, yedek={n:NOTES,p:PAYMENTS,l:LOANS};
+      await Store.set('notes',[{id:1}]); await Store.set('loans',[{id:2}]); await Store.set('payments',[{id:3}]);
+      VERI_BASLANGIC=12345; await Store.set('sifirlama',0);
+      await teslimTemizligi();
+      const temiz=!(await Store.get('notes',null))&&!(await Store.get('loans',null))&&!(await Store.get('payments',null));
+      await Store.set('notes',[{id:4}]); await teslimTemizligi();
+      const birKez=(await Store.get('notes',[])).length===1;
+      VERI_BASLANGIC=e; NOTES=yedek.n; PAYMENTS=yedek.p; LOANS=yedek.l;
+      await Store.set('notes',NOTES); await Store.set('payments',PAYMENTS); await Store.set('loans',LOANS);
+      return temiz&&birKez;
+    }));
+  check("iPhone'da ses tanıma yoksa klavye diktesine yönlendiriyor",
+    await page.evaluate(()=>{
+      dikteyeYonlendir();
+      const ok=document.getElementById('voice').classList.contains('active')
+        &&document.getElementById('voiceStatus').textContent.includes('mikrofon');
+      go('home'); return ok;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

@@ -284,5 +284,9 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   imkânsız. Ama özetler depoda herkese açık: bilgisayarda 10.000 olasılığı
   denemek birkaç dakika sürer. PIN, sunucuda doğrulanan bir giriş
   (Firebase Authentication) gelene kadar caydırıcıdır, kilit değildir.
-- Sesli komut iPhone/iPad tarayıcılarında çalışmaz (Safari canlı ses
-  tanımayı desteklemiyor); metin elle de yazılabilir.
+- iPhone: Safari'de ses tanıma Siri açıksa çalışır, ama ana ekrana
+  eklenmiş uygulamada çalışmaz. O durumda uygulama yazı kutusuna götürür;
+  klavyedeki mikrofonla dikte edilip Kaydet'e basılır (aynı onay akışı).
+- Teslim (09.10.2026): bu tarihten önceki bulut kayıtları gösterilmez,
+  her telefon bir kez temizlenir (`VERI_BASLANGIC`, `teslimTemizligi`).
+  Bulutta kalan eski kayıtlar istenirse Firebase konsolundan silinebilir.

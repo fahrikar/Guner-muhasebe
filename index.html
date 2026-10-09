@@ -1120,6 +1120,7 @@ function mergeCloudNotes(cloudNotes){
   let yonDegisti=false, alacakGeldi=false, odemeGeldi=false;
   cloudNotes.slice().sort((a,b)=>(a&&a.id||0)-(b&&b.id||0)).forEach(n=>{
     if(!n||!n.id)return;
+    if(n.id<VERI_BASLANGIC)return;          // teslimden önceki deneme kayıtları
     /* Müdürün verdiği borç: kayıt değil, alacak listesine gider. */
     if(n.type==='alacak'||(n.type==='cek'&&n.yon==='alacak')){ if(buluttanAlacak(n))alacakGeldi=true; return; }
     /* Müdürün verdiği çek: patronun "Ödeyeceklerim" listesine. */
@@ -1312,6 +1313,20 @@ const Store={
   }
 };
 let NOTES=[], PAYMENTS=[], LOANS=[], SANTIYELER=[];
+/* ---------- TESLİM: SIFIRDAN BAŞLANGIÇ ----------
+   Uygulama Abdurrahman'a 09.10.2026'da sıfır olarak teslim edildi. Bundan
+   önceki her şey denemeydi. Bulutta kayıt silinemediği için (kurallar
+   yalnız eklemeye izin veriyor) bu andan eski bulut kayıtları hiçbir
+   telefonda gösterilmez; her telefonda eski kayıt, çek, alacak ve gönderim
+   kuyruğu da bir kez temizlenir. Kimlikler Date.now() olduğu için tarih
+   karşılaştırması kimlikle yapılır. PIN, şantiye ataması, sözlük durur.
+   Yeniden sıfırlamak gerekirse bu değer ileri alınır. */
+let VERI_BASLANGIC=Date.parse('2026-10-09T13:38:00Z');
+async function teslimTemizligi(){
+  if(await Store.get('sifirlama',0)===VERI_BASLANGIC)return;
+  for(const k of ['notes','payments','loans','kuyruk','silinen','serbestYon'])Store.del(k);
+  await Store.set('sifirlama',VERI_BASLANGIC);
+}
 /* Ekrana, rapora ve Excel'e YALNIZ onaylanmış kayıtlar girer.
    Onay ekranından geçen her kayıt onayli:true taşır. Bu işareti taşımayanlar
    onay ekranı gelmeden önce (2026-08-08.8 öncesi) kaydedilmiş eski
@@ -1368,7 +1383,8 @@ async function startVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const st=document.getElementById('voiceStatus');
   const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-  if(!SR){ st.innerHTML=isIOS?'⚠️ iPhone/iPad tarayıcısı canlı ses tanımayı desteklemiyor. Android Chrome ya da bilgisayarda Chrome kullan.':'⚠️ Bu tarayıcı ses tanımayı desteklemiyor. Chrome ile açmayı dene.'; return; }
+  if(!SR){ if(isIOS){ dikteyeYonlendir(); return; }
+    st.innerHTML='⚠️ Bu tarayıcı ses tanımayı desteklemiyor. Chrome ile açmayı dene.'; return; }
   if(!window.isSecureContext){ st.textContent='⚠️ Mikrofon yalnızca güvenli bağlantıda (https) çalışır. Sayfayı https adresinden aç.'; return; }
   try{ const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}}); s.getTracks().forEach(t=>t.stop()); }
   catch(e){ st.textContent='⚠️ Mikrofon izni verilmedi ('+e.name+'). Tarayıcıda bu siteye mikrofon iznini "İzin ver" yap.'; return; }
@@ -1398,7 +1414,14 @@ async function startVoice(){
     if(lb){lb.style.display='block';
       lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:14px;text-align:left;max-height:120px;overflow:auto">'+escapeHtml(full||'…')+'</div>';}
   };
-  recog.onerror=ev=>{ st.textContent='Hata: '+ev.error; };
+  recog.onerror=ev=>{
+    /* Ana ekrana eklenmiş iPhone uygulamasında Safari'nin ses tanıması
+       kapalı: izin reddedilmiş gibi döner. Klavye diktesi her yerde çalışır. */
+    if(isIOS&&/not-allowed|service-not-allowed|audio-capture/.test(ev.error||'')){
+      listening=false; dikteyeYonlendir(); return;
+    }
+    st.textContent='Hata: '+ev.error;
+  };
   recog.onend=()=>{ if(listening){try{recog.start();}catch(e){}} };
   try{ recog.start(); listening=true;
     st.innerHTML='<span class="rec-dot"></span> Dinleniyor…';
@@ -1406,6 +1429,15 @@ async function startVoice(){
     document.getElementById('discWrap').classList.add('rec');
     document.getElementById('micHint').textContent='Dinleniyor… bırakınca duracak';
   }catch(e){ st.textContent='Başlatılamadı: '+e.message; }
+}
+/* iPhone'da ses tanıma yoksa: yazı kutusuna götür, klavyedeki mikrofonla
+   söylet, Kaydet'e bastır. Aynı onay ve çek akışından geçer. */
+function dikteyeYonlendir(){
+  go('voice');
+  const st=document.getElementById('voiceStatus');
+  if(st)st.innerHTML='🎤 iPhone\'da: kutuya dokun, klavyedeki <b>mikrofon</b> tuşuna basıp söyle, sonra <b>Kaydet</b>.';
+  const lb=document.getElementById('liveBox'); if(lb)lb.style.display='none';
+  setTimeout(()=>{const t=document.getElementById('voiceText');if(t)t.focus();},60);
 }
 function stopVoice(){
   if(!listening)return;
@@ -3262,7 +3294,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.11";
+const APP_VERSION="2026-10-09.12";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
@@ -3317,6 +3349,7 @@ async function boot(){
      uygulamayı ilk açan kişiye sebepsiz izin kutusu çıkıyordu. */
   /* Kişiye özel PIN değişiklikleri (varsa) taban listenin üzerine bindirilir. */
   await stokVerisiniSil();
+  await teslimTemizligi();
   PIN_OVERRIDES=await Store.get('pins',{})||{};
   applyPinOverrides();
 
