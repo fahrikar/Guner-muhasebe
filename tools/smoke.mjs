@@ -108,9 +108,9 @@ try{
   check("alt menü giriş öncesi gizli",!(await page.isVisible("nav")));
   /* Ayarlarda çıkış, yedek ve PIN değişimi var; giriş öncesi açılmamalı. */
   check("ayarlar dişlisi giriş öncesi gizli",!(await page.isVisible("#btnAyar")));
-  await page.evaluate(()=>go('stock'));            // menü gizli, doğrudan çağır
+  await page.evaluate(()=>go('payments'));         // menü gizli, doğrudan çağır
   check("go() giriş olmadan ekran açmıyor",
-    !(await page.isVisible("#stock"))&&await page.isVisible("#login"));
+    !(await page.isVisible("#payments"))&&await page.isVisible("#login"));
 
   /* 2 — hatalı PIN */
   await login("99999999");
@@ -119,9 +119,9 @@ try{
   /* 3 — müdür patron ekranlarını açamıyor */
   await login(TEST_MUDUR);
   check("müdür giriş yaptı",await page.isVisible("#home"));
-  check("müdüre patron sekmeleri gizli",!(await page.isVisible("#nStock")));
-  await page.evaluate(()=>go('stock'));
-  check("müdür doğrudan çağrıyla da stok göremiyor",!(await page.isVisible("#stock")));
+  check("müdüre patron sekmeleri gizli",!(await page.isVisible("#nPayments")));
+  await page.evaluate(()=>go('payments'));
+  check("müdür doğrudan çağrıyla da çekleri göremiyor",!(await page.isVisible("#payments")));
   check("müdüre şantiye ve fabrika sekmeleri gizli",
     !(await page.isVisible("#nSites"))&&!(await page.isVisible("#nFactory")));
   await page.evaluate(()=>go('sites'));
@@ -133,18 +133,10 @@ try{
 
   /* 4 — patron girişi + veri girişi */
   await login(TEST_PATRON);
-  check("patrona tüm sekmeler açık",await page.isVisible("#nStock"));
-
-  await page.evaluate(()=>go('stock'));
-  await page.click('button:has-text("Yeni Ürün")');
-  await page.fill("#stName","Beyaz boya 20 kg");
-  await page.fill("#stUnit","kg");
-  await page.fill("#stQty","40");
-  await page.fill("#stMin","10");
-  await page.fill("#stPrice","250");
-  await page.click('#stockForm button:has-text("Kaydet")');
-  await page.waitForTimeout(300);
-  check("stok kalemi eklendi",(await page.textContent("#stockList")).includes("Beyaz boya"));
+  check("patrona tüm sekmeler açık",await page.isVisible("#nPayments"));
+  /* Stok bölümü kaldırıldı: ne menüde ne ekran olarak var. */
+  check("stok sekmesi ve ekranı yok",
+    !(await page.$("#nStock"))&&!(await page.$("#stock"))&&!/Stok/.test(await page.textContent("nav")));
 
   await page.evaluate(()=>go('payments'));
   await page.fill("#payTitle","Ahmet'e çek");
@@ -704,8 +696,6 @@ try{
   await page.evaluate(()=>go('notes'));
   const tablo2=await page.textContent("#tableBox");
   check("KAYITLAR yenilemeden sonra duruyor",tablo2.includes("Emanet"),tablo2.slice(0,120));
-  await page.evaluate(()=>go('stock'));
-  check("STOK yenilemeden sonra duruyor",(await page.textContent("#stockList")).includes("Beyaz boya"));
   await page.evaluate(()=>go('payments'));
   check("ÇEKLER yenilemeden sonra duruyor",(await page.textContent("#payList")).includes("Ahmet"));
 
@@ -733,7 +723,7 @@ try{
        boşaltmak kütüphane yokmuş gibi davranmayı sağlar. */
     const y=window.XLSX; window.XLSX=undefined;
     let hata=null;
-    try{ exportTable(); exportStock(); exportFullTemplate(); }catch(e){ hata=e.message; }
+    try{ exportTable(); exportFullTemplate(); }catch(e){ hata=e.message; }
     window.XLSX=y; return hata;
   });
   check("XLSX yokken dışa aktarma çökmüyor",cdnsuz===null,cdnsuz);
@@ -970,15 +960,10 @@ try{
       return !LOANS.some(x=>x.id===777005);
     }));
 
-  /* 20 — para cümlesi stok komutu sayılmıyor */
-  check("para cümlesi stoktan düşmüyor",
-    await page.evaluate(()=>{
-      const eski=STOCK; STOCK=[{id:1,name:'Boya',unit:'kg',qty:10}];
-      const para=detectStockCommand('boya 5 bin lira verildi');
-      const stok=detectStockCommand('boya 3 kg çıktı');
-      STOCK=eski;
-      return para===null&&!!stok&&stok.qty===3;
-    }));
+  /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
+  check("stok cümlesi kayıt olarak ayrıştırılıyor",
+    await page.evaluate(()=>typeof detectStockCommand==='undefined'
+      &&parseItems('boya 5 bin lira verildi').some(i=>i.amount===5000)));
   await page.evaluate(()=>{ cloudOn=false; db=null; BULUT_KUYRUK=[]; bulutDurumCiz(); });
 
   check("sayfada JS hatası yok",errs.length===0,errs.join(" | "));

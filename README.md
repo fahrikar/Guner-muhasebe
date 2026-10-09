@@ -1,6 +1,6 @@
 # Güner · Sesli Kayıt
 
-Gider kalemlerini konuşarak gir, stok ve çek ödemelerini takip et, hepsini
+Gider kalemlerini konuşarak gir, çek ödemelerini ve alacakları takip et, hepsini
 Excel/CSV olarak dışa aktar. Tek dosyalık web uygulaması — build adımı yok,
 `index.html` tarayıcıda açılıyor.
 
@@ -11,11 +11,11 @@ Excel/CSV olarak dışa aktar. Tek dosyalık web uygulaması — build adımı y
    dökülür, tutarlar ayrıştırılıp kategorilere bağlanır ve kaydedilir.
 3. **Tablo** ekranında kalemleri gör (borç ve alacak ayrı bloklarda),
    tanınmayanları bir kez öğret.
-4. **Rapor**, **Stok**, **Çekler** ekranları (yalnız patron).
+4. **Rapor**, **Çekler**, **Şantiye**, **Fabrika** ekranları (yalnız patron).
 5. Excel / CSV çıktısı her ekranın kendi düğmesinden alınır.
 
-Sesli komutla stok da hareket ettirilebilir: "boya 10 kg çıktı" gibi bir
-cümle stoktan düşer.
+Stok bölümü kaldırıldı. Daha önce girilmiş stok verisi silinmedi; telefonda
+duruyor ve **Yedek Al** dosyasına girmeye devam ediyor.
 
 ## Borç / Alacak
 
@@ -46,7 +46,7 @@ o satırdaki `yon` değerini değiştirmek yeter — tablo, rapor ve Excel'in
 
 | Rol | Görebildiği |
 |---|---|
-| patron | hepsi — rapor, stok, çekler, bütün müdürlerin girdileri |
+| patron | hepsi — rapor, çekler, şantiye, fabrika, bütün müdürlerin girdileri |
 | müdür | yalnız ana ekran ve tablo (kendi gider girişi) |
 
 Kişiler ve rolleri `tools/make-pins.mjs` içindeki listede tanımlı.
@@ -166,7 +166,7 @@ belirleyen tek şey kurallardır.
 
 ## Veri nerede duruyor
 
-Kayıtlar, stok, çekler, öğrenilen kelimeler ve ayarlar telefonun
+Kayıtlar, çekler, öğrenilen kelimeler ve ayarlar telefonun
 `localStorage`'ında (`gm_` önekiyle). Patron oturumunda müdürlerin bulut
 kayıtları da canlı olarak birleştirilir.
 
@@ -200,7 +200,7 @@ de Excel üretilebilir**. Ağ gerektiren işler:
 
 | İş | İnternet |
 |---|---|
-| Kayıt girme, tablo, stok, çekler, Excel, CSV | gerekmez |
+| Kayıt girme, tablo, çekler, Excel, CSV | gerekmez |
 | Sesli komut (tarayıcı ses tanıma) | gerekir |
 | Fotoğraftan metin okuma (OCR) | gerekir |
 | PDF çıktısı | gerekir |
@@ -250,7 +250,7 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   (CVE-2023-30533). Bu uygulama Excel **yazıyor**, hiç okumuyor; bu yüzden
   etkilenmiyor. Yine de kütüphane güncellenirse iyi olur.
 - Kayıt sonrası teyit artık sesli okunmuyor; onay kutusu ekranda görünüyor.
-  Stok teyidi, olağandışı tutar uyarısı ve öğrenme teyidi sesli kalmaya
+  Olağandışı tutar uyarısı ve öğrenme teyidi sesli kalmaya
   devam ediyor (Tablo → Sesli uyarılar'dan kapatılabilir).
 - Çek hatırlatması yalnız uygulama açıkken/öne geldiğinde çalışır; arka
   planda bildirim gönderen bir servis yok.
@@ -262,7 +262,5 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   kartıyla bütün olasılıkları denemek saatler sürer. PIN, sunucuda
   doğrulanan bir giriş (Firebase Authentication) gelene kadar caydırıcıdır,
   kilit değildir.
-- Sesli stok komutu artık onay soruyor; içinde para sözcüğü (lira, TL,
-  bin, milyon…) geçen cümle stok komutu sayılmıyor.
 - Sesli komut iPhone/iPad tarayıcılarında çalışmaz (Safari canlı ses
   tanımayı desteklemiyor); metin elle de yazılabilir.
