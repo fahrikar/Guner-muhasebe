@@ -977,6 +977,44 @@ try{
       &&parseItems('boya 5 bin lira verildi').some(i=>i.amount===5000)));
   await page.evaluate(()=>{ cloudOn=false; db=null; BULUT_KUYRUK=[]; bulutDurumCiz(); });
 
+  /* 22 — 4 haneli PIN ayarlardan seçilebiliyor. Önceki adım taban PIN'i
+     değiştirdi; oturumu o PIN ile yeniden aç. */
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  await login("55555555");
+  await page.evaluate(()=>ayarAc());
+  await page.click('button:has-text("PIN\'imi değiştir")');
+  await page.fill("#pinOld","55555555");
+  await page.fill("#pinNew","4321");
+  await page.fill("#pinNew2","4321");
+  await page.click('button:has-text("PIN\'i kaydet")');
+  await page.waitForTimeout(900);
+  check("4 haneli PIN'e geçilebiliyor",
+    await page.evaluate(async()=>ROLES[0].hash===await pinHash('4321')),
+    await page.textContent("#pinStatus"));
+  await page.evaluate(()=>ayarKapat());
+
+  /* 23 — art arda 5 hatalı denemeden sonra bekletiliyor */
+  await page.evaluate(()=>logout());
+  await page.waitForTimeout(200);
+  for(let i=0;i<5;i++){
+    await page.fill("#pinInput","0000");
+    await page.click('button:has-text("Gir")');
+    await page.waitForFunction(()=>!/Kontrol/.test(document.getElementById('loginStatus').textContent),null,{timeout:20000});
+  }
+  check("5 hatadan sonra bekleme söyleniyor",
+    (await page.textContent("#loginStatus")).includes("30 saniye"),await page.textContent("#loginStatus"));
+  await page.fill("#pinInput","4321");
+  await page.click('button:has-text("Gir")');
+  await page.waitForTimeout(400);
+  check("bekleme süresinde doğru PIN de kabul edilmiyor",
+    !(await page.isVisible("#home"))&&(await page.textContent("#loginStatus")).includes("saniye sonra"));
+  await page.evaluate(()=>Store.del('girisKilit'));
+  await login("4321");
+  check("bekleme bitince 4 haneli PIN ile giriliyor",await page.isVisible("#home"));
+  check("başarılı giriş sayacı sıfırlıyor",
+    await page.evaluate(()=>localStorage.getItem('gm_girisKilit')===null));
+
   check("sayfada JS hatası yok",errs.length===0,errs.join(" | "));
 }catch(e){ failed++; console.log("  HATA istisna → "+e.message); }
 finally{ await b.close(); srv.close(); }

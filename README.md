@@ -70,7 +70,7 @@ PIN'ler **kaynak dosyada tutulmaz**. `index.html` yalnızca PBKDF2-SHA256
 sunucuda bulunmaz.
 
 ```bash
-npm run pin                 # rastgele 8 haneli PIN üretir, ekranda gösterir
+npm run pin                 # rastgele 4 haneli PIN üretir, ekranda gösterir
 npm run pin -- --sor        # PIN'leri sen yazarsın
 npm run pin -- --yeni-tuz   # tuzu da yeniler
 ```
@@ -81,7 +81,7 @@ kişilere iletilmeli.
 ### Kullanıcı kendi PIN'ini değiştirebilir
 
 Uygulama içinde: **Tablo → Güvenlik → PIN'imi değiştir**. Mevcut PIN sorulur,
-yeni PIN 6-8 hane olmalı ve başka bir kullanıcınınkiyle çakışamaz.
+yeni PIN 4-8 hane olmalı ve başka bir kullanıcınınkiyle çakışamaz.
 
 Bu değişiklik **yalnız o cihazda** geçerlidir: sayfa kendi kaynağını
 yazamadığı için değişiklik telefonun kendi deposunda tutuluyor. Aynı kişi
@@ -258,9 +258,10 @@ koşul hiç tutmuyordu ve her şey sayfa kapanınca siliniyordu.
   Bunun için PIN özetlerinin Firebase'e yazılması gerekir; kimliğin hâlâ
   istemcide doğrulandığı bir kurulumda bunu eklemek yeni bir açık yaratır,
   bu yüzden Firebase Authentication'a geçilmeden yapılmadı.
-- PIN özetleri depoda herkese açık ve PIN 8 haneli: güçlü bir ekran
-  kartıyla bütün olasılıkları denemek saatler sürer. PIN, sunucuda
-  doğrulanan bir giriş (Firebase Authentication) gelene kadar caydırıcıdır,
-  kilit değildir.
+- PIN 4 haneli (kullanım kolaylığı için bilerek). Giriş ekranında art
+  arda 5 hatadan sonra 30 saniye bekletilir, elle tahmin pratikte
+  imkânsız. Ama özetler depoda herkese açık: bilgisayarda 10.000 olasılığı
+  denemek birkaç dakika sürer. PIN, sunucuda doğrulanan bir giriş
+  (Firebase Authentication) gelene kadar caydırıcıdır, kilit değildir.
 - Sesli komut iPhone/iPad tarayıcılarında çalışmaz (Safari canlı ses
   tanımayı desteklemiyor); metin elle de yazılabilir.

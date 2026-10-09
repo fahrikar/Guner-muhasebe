@@ -1,8 +1,8 @@
 /* PIN kodlarını değiştirir — PIN'in kendisi hiçbir dosyaya yazılmaz.
 
    Kullanım:
-     npm run pin                       # rastgele 8 haneli PIN'ler üretir
-     npm run pin -- --sor              # PIN'leri sen yazarsın (ekranda görünmez)
+     npm run pin                       # rastgele 4 haneli PIN'ler üretir
+     npm run pin -- --sor              # PIN'leri sen yazarsın (4-8 hane)
      npm run pin -- --yeni-tuz         # tuzu da yeniler (tüm PIN'ler değişir)
 
    Neden script: PIN'ler index.html'e düz yazıldığında, depoyu ya da sayfanın
@@ -41,7 +41,7 @@ let salt=(html.match(/const PIN_SALT\s*=\s*"([0-9a-f]+)"/)||[])[1];
 if(!salt||yeniTuz)salt=randomBytes(16).toString("hex");
 
 const ozet=pin=>pbkdf2Sync(pin,Buffer.from(salt,"hex"),iter,32,"sha256").toString("hex");
-const rastgelePin=()=>Array.from({length:8},()=>randomInt(10)).join("");
+const rastgelePin=()=>Array.from({length:4},()=>randomInt(10)).join("");
 
 let pinler;
 if(sor){
@@ -49,9 +49,9 @@ if(sor){
   pinler=[];
   for(const k of KISILER){
     let p="";
-    while(!/^\d{6,8}$/.test(p)){
-      p=(await rl.question(`${k.ad} için PIN (6-8 hane): `)).trim();
-      if(!/^\d{6,8}$/.test(p))console.log("  → 6 ile 8 hane arasında, yalnız rakam.");
+    while(!/^\d{4,8}$/.test(p)){
+      p=(await rl.question(`${k.ad} için PIN (4-8 hane): `)).trim();
+      if(!/^\d{4,8}$/.test(p))console.log("  → 4 ile 8 hane arasında, yalnız rakam.");
     }
     pinler.push(p);
   }

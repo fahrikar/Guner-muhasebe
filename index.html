@@ -227,7 +227,7 @@
       <h2 style="text-align:center">Giriş</h2>
       <p class="muted" style="margin-bottom:18px">PIN kodunu gir</p>
       <input id="pinInput" type="password" inputmode="numeric" autocomplete="current-password"
-             maxlength="8" placeholder="••••••••" aria-label="PIN kodu"
+             maxlength="8" placeholder="••••" aria-label="PIN kodu"
              style="text-align:center;font-size:22px;letter-spacing:8px"
              onkeydown="if(event.key==='Enter')doLogin()">
       <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:14px 0 0;cursor:pointer">
@@ -548,12 +548,12 @@ const PIN_SALT="cda81949d6eb93e09623214361e1fe85";
 const PIN_ITER=310000;
 /* Kaynaktaki taban liste — `npm run pin` bu bloğu yeniden yazar. */
 let BASE_ROLES=[
-  {rol:'patron', ad:'Abdurrahman', hash:'eb3152a0b99f2f296afe57ae0d9bc1f08a74c054e9af64f2f4fecf81a0b6cb0b'},
-  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'9013b21a48418751b29f12bd9eebadb726eaf43aedc2770c68e8e3dc2a113126'},
-  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'1a079c95786ffe7e7cf6febf0c66f77431871f6581492184b587a8cd0d186f64'},
-  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'1cec8d97cf59d9feb5b8c0663001eaa897af33a24b88a926a821e609ae083606'},
-  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'42725f72dd2e39695ac4dbf208fc430fc744dfb52b71d98707f456da6459d259'},
-  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'9de82577ede24889e31253591ec4878502ffe7f1f6fe855a770c3c83ec10ec4b'}
+  {rol:'patron', ad:'Abdurrahman', hash:'3cd434d9752a960d5786d5d998b757dba08a0120a6a3abf6430583fa7c813e02'},
+  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'aaa37c4c7aa5babca8d5a5aa3f18aee417e1327cd3ca141a630d7ee6ad05245e'},
+  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'1f9f8074294764c6ec3c28a4ee4ef6497fc45dde6a1c11bfb7651ec10f3d2596'},
+  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'85607fbae348facee891b7140c80b0ad513e57d3fa8a18d644b0bedeaefc65ec'},
+  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'3a820ea4aec2c3c6bbf5eb8115c34a487cfefbeb5ef5c235e32bc3d7cbe6fec7'},
+  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'052f3997ba9dd259182136179c05564f5453c08509ab384e0aca221694666334'}
 ];
 
 /* Kullanıcı kendi PIN'ini uygulama içinden değiştirebiliyor. Sayfa kendi
@@ -618,7 +618,7 @@ async function changePin(){
   const eski=document.getElementById('pinOld').value.trim();
   const yeni=document.getElementById('pinNew').value.trim();
   const yeni2=document.getElementById('pinNew2').value.trim();
-  if(!/^\d{6,8}$/.test(yeni)){st.textContent='Yeni PIN 6-8 hane olmalı, yalnız rakam.';return;}
+  if(!/^\d{4,8}$/.test(yeni)){st.textContent='Yeni PIN 4-8 hane olmalı, yalnız rakam.';return;}
   if(yeni!==yeni2){st.textContent='İki yeni PIN aynı değil.';return;}
   if(yeni===eski){st.textContent='Yeni PIN eskisiyle aynı olamaz.';return;}
   if(!(window.crypto&&crypto.subtle)){st.textContent='Güvenli bağlantı (https) gerekiyor.';return;}
@@ -665,6 +665,7 @@ function showLogin(){
   ayarKapat();
 }
 let loginBusy=false;
+const GIRIS_HATA_SINIRI=5, GIRIS_BEKLEME_MS=30000;
 async function doLogin(){
   if(loginBusy)return;
   const pin=document.getElementById('pinInput').value.trim();
@@ -674,6 +675,14 @@ async function doLogin(){
   if(!(window.crypto&&crypto.subtle)){
     st.textContent='⚠️ Güvenli bağlantı gerekiyor. Sayfayı https adresinden aç.'; return;
   }
+  /* PIN 4 hane: 10.000 olasılık. Art arda 5 hatadan sonra 30 saniye
+     bekletilir; elle tahmin etmeyi pratikte imkânsız kılar. (Kaynağı
+     bilen biri konsoldan bunu aşabilir — asıl koruma Firebase kuralları.) */
+  const kilit=await Store.get('girisKilit',null)||{n:0,until:0};
+  if(kilit.until>Date.now()){
+    st.textContent='Çok fazla hatalı deneme. '+Math.ceil((kilit.until-Date.now())/1000)+' saniye sonra tekrar dene.';
+    return;
+  }
   loginBusy=true; st.textContent='Kontrol ediliyor…';
   let r=null;
   try{
@@ -681,7 +690,15 @@ async function doLogin(){
     r=ROLES.find(x=>x.hash===h)||null;
   }catch(e){ st.textContent='Giriş kontrol edilemedi: '+e.message; loginBusy=false; return; }
   loginBusy=false;
-  if(!r){ st.textContent='Hatalı PIN.'; document.getElementById('pinInput').value=''; return; }
+  if(!r){
+    kilit.n=(kilit.n||0)+1;
+    if(kilit.n>=GIRIS_HATA_SINIRI){ kilit.n=0; kilit.until=Date.now()+GIRIS_BEKLEME_MS; }
+    await Store.set('girisKilit',kilit);
+    st.textContent=kilit.until>Date.now()
+      ?'Hatalı PIN. Çok fazla deneme — 30 saniye bekle.':'Hatalı PIN.';
+    document.getElementById('pinInput').value=''; return;
+  }
+  Store.del('girisKilit');
   st.textContent='';
   document.getElementById('pinInput').value='';
   const hatirla=document.getElementById('rememberMe').checked;
@@ -2065,7 +2082,7 @@ function ayarCiz(){
      +'<div id="pinForm" style="display:none;margin-top:12px">'
      +'<label for="pinOld">Mevcut PIN</label>'
      +'<input id="pinOld" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">'
-     +'<label for="pinNew">Yeni PIN (6-8 hane)</label>'
+     +'<label for="pinNew">Yeni PIN (4-8 hane)</label>'
      +'<input id="pinNew" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">'
      +'<label for="pinNew2">Yeni PIN (tekrar)</label>'
      +'<input id="pinNew2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">'
@@ -3011,7 +3028,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.4";
+const APP_VERSION="2026-10-09.5";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
