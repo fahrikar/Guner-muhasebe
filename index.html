@@ -1134,6 +1134,8 @@ function mergeCloudNotes(cloudNotes){
       t=Object.assign({},t,{vadeYerel:true});
       if(yerel.vade)t.vade=yerel.vade; else delete t.vade;
     }
+    /* Ödendi/tahsil edildi işareti de yalnız bu cihazda: ezilmesin. */
+    if(t&&yerel&&yerel.kapanan)t=Object.assign({},t,{kapanan:yerel.kapanan});
     if(t)map[n.id]=t; else delete map[n.id];
     /* Müdürün serbest kalem için seçtiği yön kalemde taşınıyor; burada
        bilinmiyorsa öğrenilir. Yoksa müdürün "alacak" dediği kalem patronun
@@ -2204,6 +2206,7 @@ function renderTable(){
     tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
     belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():'',
     vade:n.vade||'',
+    kapandi:kalemKapanis(n,it), takip:takipKalemi(n,it),
     yon:it.known?yonOf(it.known):null})));
   if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
 
@@ -2234,8 +2237,14 @@ function renderTable(){
           :r.yon==='alacak'
             ?'<div class="alt" style="cursor:pointer;color:var(--warn,#a9761e)" onclick="kayitVade('+r.noteId+')">+ vade ekle</div>'
             :'')
-        +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')+'</td>'
-      +'<td class="num">'+money(r.tutar)+'</td>'
+        +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')
+        +(r.kapandi
+          ?'<div class="alt" style="color:var(--ok);font-weight:600">✓ '+(r.yon==='alacak'?'tahsil edildi':'ödendi')+' '+fmtDate(r.kapandi)+'</div>'
+          :r.takip&&r.yon
+            ?'<div class="alt" style="cursor:pointer;text-decoration:underline" onclick="kalemKapat('+r.noteId+','+r.idx+')">'
+              +(r.yon==='alacak'?'tahsil edildi işaretle':'ödendi işaretle')+'</div>'
+            :'')+'</td>'
+      +'<td class="num"'+(r.kapandi?' style="opacity:.55"':'')+'>'+money(r.tutar)+'</td>'
       +'<td class="sil"><button type="button" aria-label="Sil" '
         +'onclick="delRow('+r.noteId+','+r.idx+')">×</button></td></tr>';
   };
@@ -2383,6 +2392,32 @@ async function kayitVade(noteId){
   }
   if(iso)n.vade=iso; else delete n.vade;
   n.vadeYerel=true;                     // buluttan gelen kopya bunu ezmesin
+  await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
+  renderTable(); checkReminders();
+  if(document.getElementById('reports').classList.contains('active'))report(curReport);
+}
+/* ---------- ÖDENDİ / TAHSİL EDİLDİ ----------
+   Ödenen borç ya da gelen alacak SİLİNMEZ, kapatılır: açık listeden çıkar,
+   Rapor'da "Kapananlar"a geçer, Tablo'da ve Excel'de geçmiş olarak kalır.
+   Kalem bazında (kalemImzasi) tutulur: bir kayıtta birden çok kalem olabilir.
+   Bulut kopyası değişmediği için yerel işaret birleştirmede korunur. */
+function kalemKapanis(n,it){ return n&&n.kapanan&&n.kapanan[kalemImzasi(it)]||''; }
+/* Takip edilen kalem: vadesi var ya da sözlük dışı (borç verme/alma).
+   Yakıt, Kira gibi anında ödenmiş giderlerde "ödendi" düğmesi anlamsız. */
+function takipKalemi(n,it){ return !!(n&&n.vade)||!CATEGORY_MAP.some(c=>c.ad===it.known); }
+async function kalemKapat(noteId,idx,geriAl){
+  const n=NOTES.find(x=>x.id===noteId); if(!n)return;
+  const it=(n.items||[])[idx]; if(!it)return;
+  const al=yonOf(it.known||it.category)==='alacak';
+  const ad=(it.known||it.category)+' · '+money(it.amount);
+  if(geriAl){
+    if(!confirm('"'+ad+'" yeniden açık olarak işaretlensin mi?'))return;
+    delete n.kapanan[kalemImzasi(it)];
+    if(!Object.keys(n.kapanan).length)delete n.kapanan;
+  }else{
+    if(!confirm('"'+ad+'" '+(al?'tahsil edildi':'ödendi')+' olarak işaretlensin mi?\n\nAçık listeden çıkar, geçmişte kalır; geri alınabilir.'))return;
+    (n.kapanan=n.kapanan||{})[kalemImzasi(it)]=todayStr();
+  }
   await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
   renderTable(); checkReminders();
   if(document.getElementById('reports').classList.contains('active'))report(curReport);
@@ -2669,14 +2704,19 @@ function report(kind){
   const satirlar=[];
   list.forEach(n=>(n.items||[]).forEach(it=>{
     if(!it.known)return;
-    satirlar.push({noteId:n.id,ad:it.known,tutar:it.amount,tarih:n.createdAt,vade:n.vade||'',
+    satirlar.push({noteId:n.id,idx:n.items.indexOf(it),ad:it.known,tutar:it.amount,tarih:n.createdAt,vade:n.vade||'',
+                   kapandi:kalemKapanis(n,it),takip:takipKalemi(n,it),
                    mudur:n.mudur||'',alacak:yonOf(it.known)==='alacak',
                    serbest:!CATEGORY_MAP.some(c=>c.ad===it.known)});
   }));
   /* Vadeli olanlar üstte (en yakın vade başta), vadesizler en yeni başta. */
   const sirala=a=>a.slice().sort((p,q)=>p.vade&&q.vade?p.vade.localeCompare(q.vade)
     :p.vade?-1:q.vade?1:String(q.tarih).localeCompare(String(p.tarih)));
-  const borclar=sirala(satirlar.filter(r=>!r.alacak)), alacaklar=sirala(satirlar.filter(r=>r.alacak));
+  /* Kapananlar açık listeden ve toplamlardan çıkar, ayrı bölümde durur. */
+  const acik=satirlar.filter(r=>!r.kapandi), kapanan=satirlar.filter(r=>r.kapandi);
+  const borclar=sirala(acik.filter(r=>!r.alacak)), alacaklar=sirala(acik.filter(r=>r.alacak));
+  const topla=a=>a.reduce((x,r)=>x+r.tutar,0);
+  y.tBorc=topla(borclar); y.tAlacak=topla(alacaklar);
 
   const fark=y.tAlacak-y.tBorc;
   const bakiye=Math.abs(fark)<0.005?'Borç ve alacak denk'
@@ -2713,10 +2753,25 @@ function report(kind){
       /* Vade borç verme/alma kayıtlarında anlamlı; sıradan giderde (Yakıt,
          Kira…) "vade yok" yazısı yalnız kalabalık yapıyor. */
       +(r.vade||r.serbest?'<div style="margin-top:5px;cursor:pointer" onclick="kayitVade('+r.noteId+')">'+vadeEtiketi(r.vade)+'</div>':'')
-      +'<div class="muted" style="font-size:11px;margin-top:3px">kaydedildi '+fmt(r.tarih).split(' ')[0]
-        +(r.mudur?' · '+escapeHtml(r.mudur):'')+'</div></div>').join('');
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:3px">'
+      +'<div class="muted" style="font-size:11px">kaydedildi '+fmt(r.tarih).split(' ')[0]
+        +(r.mudur?' · '+escapeHtml(r.mudur):'')+'</div>'
+      +(r.takip?'<button class="btn sm ghost" style="padding:6px 11px;font-size:12px;white-space:nowrap" '
+          +'onclick="kalemKapat('+r.noteId+','+r.idx+')">'+(r.alacak?'✓ Tahsil edildi':'✓ Ödendi')+'</button>':'')
+      +'</div></div>').join('');
     return h+'</div>';
   };
+  /* Kapananlar: kapalı ayrıntı; her satırda "Geri al". */
+  const kapananHtml=kapanan.length?'<details class="card"><summary style="cursor:pointer;font-weight:600">'
+    +'Kapananlar · '+kapanan.length+' kalem <span class="muted" style="font-weight:400">(ödendi / tahsil edildi)</span></summary>'
+    +sirala(kapanan).map(r=>'<div style="padding:10px 0;border-top:1px solid var(--line)">'
+      +'<div style="display:flex;justify-content:space-between;gap:10px">'
+      +'<span style="min-width:0;overflow-wrap:anywhere">'+escapeHtml(r.ad)+'</span>'
+      +'<b class="para" style="white-space:nowrap;opacity:.6">'+money(r.tutar)+'</b></div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'
+      +'<span style="font-size:12px;color:var(--ok);font-weight:600">✓ '+(r.alacak?'tahsil edildi':'ödendi')+' '+fmtDate(r.kapandi)+'</span>'
+      +'<button class="btn sm ghost" style="padding:5px 10px;font-size:12px" onclick="kalemKapat('+r.noteId+','+r.idx+',true)">Geri al</button>'
+      +'</div></div>').join('')+'</details>':'';
 
   /* Kategori dağılımı: ayrıntı, kapalı durur. */
   const grupSatir=(liste,renk)=>groupItems(liste).map(x=>
@@ -2739,7 +2794,7 @@ function report(kind){
   box.innerHTML=head+unkHtml
     +bolum('BORÇLAR','ödenecek · çıkan para',borclar,y.tBorc,'var(--danger)','#fbeceb','Bu dönemde borç yok.')
     +bolum('ALACAKLAR','tahsil edilecek · giren para',alacaklar,y.tAlacak,'var(--ok)','#e8f3ea','Bu dönemde alacak yok.')
-    +kategori+disari;
+    +kapananHtml+kategori+disari;
   window._reportList=list;
 }
 function exportReport(t){
@@ -3382,7 +3437,7 @@ function checkReminders(){
   const alGecmis=LOANS.filter(l=>!l.alindi&&l.vade&&daysUntil(l.vade)<0);
   /* Tablo kayıtlarının vadesi: bugün ya da yarın olanlar. Geçmişte kalanlar
      için ısrar edilmez — kayıtlarda "ödendi/alındı" işareti yok. */
-  const kayitVade=onayliNotes().filter(n=>n.vade&&(n.items||[]).length)
+  const kayitVade=onayliNotes().filter(n=>n.vade&&(n.items||[]).some(it=>!kalemKapanis(n,it)))
     .map(n=>({n:n,g:daysUntil(n.vade)})).filter(x=>x.g===0||x.g===1);
   const box=document.getElementById('reminderBox');
   let html=kayitVade.map(({n,g})=>{
@@ -3409,7 +3464,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.2";
+const APP_VERSION="2026-10-14.3";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

@@ -1204,6 +1204,33 @@ try{
       return b>=0&&a>b&&k>b&&k<a&&h>a&&t.includes('Vade '+fmtDate(ileri))&&t.includes('10 gün kaldı')
         &&document.getElementById('tabA').classList.contains('on')===false;
     }));
+  /* 29 — ödendi / tahsil edildi: açık listeden çıkar, kapananlara geçer,
+     buluttan ezilmez, geri alınabilir; sıradan giderde düğme yok. */
+  check("ödenen borç açık listeden çıkıp kapananlara geçiyor",
+    await page.evaluate(async()=>{
+      const eski=NOTES;
+      NOTES=[{id:9701,onayli:true,createdAt:new Date().toISOString(),vade:todayStr(new Date(Date.now()+5*864e5)),
+              items:[{known:"Ali'ye borç",amount:3000000,grup:'Serbest',yon:'borc'}]},
+             {id:9702,onayli:true,createdAt:new Date().toISOString(),items:[{known:'Yakıt',amount:2500,grup:'Gider'}]}];
+      SERBEST_YON["Ali'ye borç"]='borc';
+      go('reports'); report('all');
+      const once=document.getElementById('reportBox').innerHTML;
+      const dugmeVar=once.includes('kalemKapat(9701,0)')&&!once.includes('kalemKapat(9702,0)');
+      await kalemKapat(9701,0);
+      const t=document.getElementById('reportBox').textContent;
+      const b=t.indexOf('BORÇLAR'), a=t.indexOf('ALACAKLAR'), k=t.indexOf('Kapananlar');
+      const acikta=t.slice(b,a).includes("Ali'ye borç"), kapanan=k>0&&t.slice(k).includes("Ali'ye borç")&&t.slice(k).includes('ödendi');
+      const toplam=t.slice(b,a).includes('2.500 ₺')&&!t.slice(0,b).includes('3.002.500');
+      /* bulut kopyası işareti ezmiyor */
+      const kopya=JSON.parse(JSON.stringify(NOTES[0])); delete kopya.kapanan; VERI_BASLANGIC=0;
+      mergeCloudNotes([kopya]);
+      const korundu=!!kalemKapanis(NOTES.find(n=>n.id===9701),NOTES.find(n=>n.id===9701).items[0]);
+      await kalemKapat(9701,0,true);
+      const geri=!kalemKapanis(NOTES[0],NOTES[0].items[0])
+        &&document.getElementById('reportBox').textContent.slice(0,document.getElementById('reportBox').textContent.indexOf('ALACAKLAR')).includes("Ali'ye borç");
+      NOTES=eski; await Store.set('notes',NOTES); report('month');
+      return dugmeVar&&!acikta&&kapanan&&toplam&&korundu&&geri;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'
