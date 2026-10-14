@@ -2373,7 +2373,8 @@ function ayarCiz(){
 
   /* Sürüm burada dursun: "düzeltildi" denen bir hata telefonda sürerken
      eski yapıda mı kalındığını başka türlü anlamanın yolu yok. */
-  const surum='<div class="muted" style="text-align:center;padding:12px 0 2px;font-size:12px">Sürüm '+APP_VERSION+'</div>';
+  const surum='<div class="muted" style="text-align:center;padding:12px 0 2px;font-size:12px">Sürüm '+APP_VERSION
+    +' · <u style="cursor:pointer" onclick="guncellemeDenetle()">Güncellemeyi denetle</u></div>';
   box.innerHTML=ayarlar+surum;
 }
 /* Tablo kaydının vadesini ekler/değiştirir. Boş bırakılırsa vade kalkar.
@@ -3464,10 +3465,35 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.3";
+const APP_VERSION="2026-10-14.4";
 let waitingWorker=null;
 
-function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
+/* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni
+   sürüm arka planda iniyor ama "Yenile" çubuğuna dokunulmadıkça eski ekran
+   kalıyordu. Artık yarım kalmış bir giriş yoksa yeni sürüm kendiliğinden
+   devreye girer; varsa çubuk gösterilir, giriş bitince uygulanır. */
+let regSW=null;
+function guncellemeGuvenliMi(){
+  if(listening)return false;
+  if(['onayKat','cekKat','belgeKat','hizliKat'].some(id=>{const e=document.getElementById(id);return e&&e.style.display==='flex';}))return false;
+  if(['voiceText','ocrText'].some(id=>{const e=document.getElementById(id);return e&&e.value.trim();}))return false;
+  return true;
+}
+function showUpdateBar(w){
+  waitingWorker=w;
+  if(guncellemeGuvenliMi()){ applyUpdate(); return; }
+  document.getElementById('updBar').classList.add('show');
+}
+/* Ayarlar'daki düğme: sunucuya sor, yeni sürüm varsa uygula, yoksa söyle. */
+async function guncellemeDenetle(){
+  if(waitingWorker){ applyUpdate(); return; }
+  if(!regSW){ location.reload(); return; }
+  try{ await regSW.update(); }catch(e){}
+  setTimeout(()=>{
+    if(regSW.waiting){ waitingWorker=regSW.waiting; applyUpdate(); }
+    else if(!regSW.installing)alert('Uygulama güncel: Sürüm '+APP_VERSION);
+  },1500);
+}
 function applyUpdate(){
   document.getElementById('updBar').classList.remove('show');
   if(waitingWorker)waitingWorker.postMessage({type:'skipWaiting'});
@@ -3486,6 +3512,7 @@ function initUpdates(){
      yenilemek forma yazılanları siler. Yalnız gerçek güncellemede yenilenir. */
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(reg=>{
+    regSW=reg;
     if(reg.waiting&&navigator.serviceWorker.controller)showUpdateBar(reg.waiting);
     reg.addEventListener('updatefound',()=>{
       const w=reg.installing; if(!w)return;
@@ -3493,7 +3520,12 @@ function initUpdates(){
         if(w.state==='installed'&&navigator.serviceWorker.controller)showUpdateBar(w);
       });
     });
-    const check=()=>{if(document.visibilityState==='visible')reg.update().catch(()=>{});};
+    const check=()=>{
+      if(document.visibilityState!=='visible')return;
+      /* Öne gelince bekleyen sürüm varsa ve giriş yarım değilse uygula. */
+      if(waitingWorker&&guncellemeGuvenliMi()){ applyUpdate(); return; }
+      reg.update().catch(()=>{});
+    };
     document.addEventListener('visibilitychange',check);
     check();
   }).catch(()=>{});
