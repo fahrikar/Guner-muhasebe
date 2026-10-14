@@ -1150,6 +1150,44 @@ try{
         &&document.getElementById('voiceStatus').textContent.includes('mikrofon');
       go('home'); return ok;
     }));
+  /* 27 — basılı tut → konuş → bırak. Sahte tanıma motoru: start() dokunuşun
+     İÇİNDE (pointerdown işlenirken) çağrılmazsa iPhone gibi reddeder. */
+  await page.evaluate(()=>{
+    go('home');
+    window.__sr={basladi:0,olayIcinde:false};
+    window.webkitSpeechRecognition=class{
+      start(){ __sr.basladi++; __sr.olayIcinde=!!(window.event&&window.event.type==='pointerdown');
+        if(!__sr.olayIcinde){ setTimeout(()=>this.onerror&&this.onerror({error:'not-allowed'}),0); return; }
+        setTimeout(()=>this.onresult&&this.onresult({resultIndex:0,results:[Object.assign([{transcript:'yakıt 750'}],{isFinal:false})]}),50); }
+      stop(){ setTimeout(()=>{ this.onresult&&this.onresult({resultIndex:0,results:[Object.assign([{transcript:'yakıt 750'}],{isFinal:true})]});
+                               this.onend&&this.onend(); },200); }
+    };
+    window.SpeechRecognition=window.webkitSpeechRecognition;   // Chromium önce bunu kullanıyor
+    document.getElementById('voiceText').value='';
+  });
+  const mik=await page.$("#micHero"); const kutu=await mik.boundingBox();
+  await page.mouse.move(kutu.x+kutu.width/2,kutu.y+kutu.height/2);
+  await page.mouse.down(); await page.waitForTimeout(600);
+  check("basılı tutunca tanıma dokunuşun içinde başlıyor",
+    await page.evaluate(()=>__sr.basladi===1&&__sr.olayIcinde&&listening),
+    await page.evaluate(()=>JSON.stringify({sr:__sr,listening,ekran:[...document.querySelectorAll('.screen.active')].map(x=>x.id),
+      ust:(()=>{const r=document.getElementById('micHero').getBoundingClientRect();const e=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e&&(e.id||e.className);})()})));
+  await page.mouse.up();
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  check("bırakınca son sözcükler bekleniyor ve kayıt onayı açılıyor",
+    await page.evaluate(()=>onayKalemler.length===1&&onayKalemler[0].tutar===750&&!listening),
+    await page.evaluate(()=>JSON.stringify(onayKalemler)));
+  await page.evaluate(()=>onayKapat(null));
+  /* Kısa dokunuş kayıt açmıyor, ipucu gösteriyor. */
+  await page.evaluate(()=>{ document.getElementById('voiceText').value='';
+    window.webkitSpeechRecognition.prototype.stop=function(){ setTimeout(()=>this.onend&&this.onend(),20); }; });
+  await page.mouse.down(); await page.mouse.up();
+  await page.waitForTimeout(400);
+  check("kısa dokunuşta 'basılı tut' ipucu çıkıyor",
+    (await page.textContent("#liveBox")).includes("Basılı tut")&&!(await page.isVisible("#onayKat")));
+  check("izin hatası Türkçe anlatılıyor",
+    await page.evaluate(()=>{ sesMesaj('⚠️ '+SES_HATA['not-allowed']); return document.getElementById('liveBox').textContent.includes('izni yok'); }));
+  await page.evaluate(()=>{ delete window.webkitSpeechRecognition; delete window.SpeechRecognition; });
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

@@ -258,7 +258,7 @@
         </div>
         </div>
         <h3>Sesli Komut</h3>
-        <p id="micHint">Konuş, otomatik yazıya dökülsün</p>
+        <p id="micHint">Basılı tut, konuş, bırak</p>
         <div id="liveBox" style="display:none;width:100%;padding:0 18px"></div>
       </div>
       <div class="hero cam" onclick="go('camera')">
@@ -1378,19 +1378,48 @@ function go(id){
 }
 
 /* ---------- SESLİ KOMUT (STT) ---------- */
-let recog=null, listening=false;
-async function startVoice(){
+/* Basılı tut → konuş → bırak.
+   iPhone Safari konuşma tanımanın DOKUNUŞUN İÇİNDE başlatılmasını istiyor.
+   Eskiden dokunuştan 140 ms sonra, üstelik önce getUserMedia ile mikrofon
+   izni sorulup await edildikten sonra başlatılıyordu; dokunuş "harcanmış"
+   oluyor, Safari not-allowed ile reddediyordu. Ön izin kontrolü iPhone'da
+   ses oturumunu da karıştırıp audio-capture hatasına yol açabiliyordu.
+   Artık start() olay işleyicisinde, beklemeden çağrılıyor; izin sorunları
+   hata olayından okunup ekranda Türkçe anlatılıyor. */
+let recog=null, listening=false, sesBittiCoz=null;
+const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+/* Mesaj hem ana ekrandaki kutuda (kişi orada) hem Sesli Komut ekranında. */
+function sesMesaj(html){
+  const st=document.getElementById('voiceStatus'); if(st)st.innerHTML=html;
+  const lb=document.getElementById('liveBox');
+  if(lb&&document.getElementById('home').classList.contains('active')){
+    lb.style.display='block';
+    lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:13px;text-align:left">'+html+'</div>';
+    clearTimeout(sesMesaj.t); sesMesaj.t=setTimeout(()=>{ if(!listening){lb.style.display='none';lb.innerHTML='';} },7000);
+  }
+}
+const SES_HATA={
+  'not-allowed':'Mikrofon ya da konuşma tanıma izni yok.'+(IOS
+     ?'<br>iPhone: Ayarlar → Safari → <b>Mikrofon</b>: İzin Ver; Ayarlar → Genel → Klavye → <b>Dikte</b> açık; Ayarlar → Siri: açık.'
+     :'<br>Tarayıcıda bu siteye mikrofon iznini "İzin ver" yap.'),
+  'service-not-allowed':'Konuşma tanıma kapalı.'+(IOS?'<br>iPhone: Ayarlar → Genel → Klavye → <b>Dikte</b> ve Ayarlar → <b>Siri</b> açık olmalı.':''),
+  'audio-capture':'Mikrofon açılamadı — başka bir uygulama (arama, kayıt) kullanıyor olabilir.',
+  'no-speech':'Ses duyulmadı. Basılı tutarken konuş, sonra bırak.',
+  'network':'Konuşma tanıma için internet gerekiyor.',
+  'language-not-supported':'Türkçe konuşma tanıma bu cihazda yok.'
+};
+function startVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  const st=document.getElementById('voiceStatus');
-  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-  if(!SR){ if(isIOS){ dikteyeYonlendir(); return; }
-    st.innerHTML='⚠️ Bu tarayıcı ses tanımayı desteklemiyor. Chrome ile açmayı dene.'; return; }
-  if(!window.isSecureContext){ st.textContent='⚠️ Mikrofon yalnızca güvenli bağlantıda (https) çalışır. Sayfayı https adresinden aç.'; return; }
-  try{ const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}}); s.getTracks().forEach(t=>t.stop()); }
-  catch(e){ st.textContent='⚠️ Mikrofon izni verilmedi ('+e.name+'). Tarayıcıda bu siteye mikrofon iznini "İzin ver" yap.'; return; }
+  if(!SR){
+    if(IOS){ dikteyeYonlendir(); return false; }
+    sesMesaj('⚠️ Bu tarayıcı ses tanımayı desteklemiyor. Chrome ile açmayı dene.'); return false;
+  }
+  if(!window.isSecureContext){ sesMesaj('⚠️ Mikrofon yalnızca güvenli bağlantıda (https) çalışır.'); return false; }
+  if(listening)return true;
   recog=new SR(); recog.lang='tr-TR'; recog.continuous=true; recog.interimResults=true; recog.maxAlternatives=3;
-  let base=document.getElementById('voiceText').value;
+  let base=document.getElementById('voiceText').value, bitti=false;
   recog.onresult=e=>{
+    if(bitti)return;                  // bittikten sonra gelen geç sonuç yok sayılır
     let interim='',fin='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       const res=e.results[i];
@@ -1415,20 +1444,34 @@ async function startVoice(){
       lb.innerHTML='<div style="background:#fffdf8;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:14px;text-align:left;max-height:120px;overflow:auto">'+escapeHtml(full||'…')+'</div>';}
   };
   recog.onerror=ev=>{
-    /* Ana ekrana eklenmiş iPhone uygulamasında Safari'nin ses tanıması
-       kapalı: izin reddedilmiş gibi döner. Klavye diktesi her yerde çalışır. */
-    if(isIOS&&/not-allowed|service-not-allowed|audio-capture/.test(ev.error||'')){
-      listening=false; dikteyeYonlendir(); return;
-    }
-    st.textContent='Hata: '+ev.error;
+    const k=ev.error||'';
+    if(k==='aborted')return;
+    sesMesaj('⚠️ '+(SES_HATA[k]||('Ses tanıma hatası: '+escapeHtml(k))));
+    if(k!=='no-speech')seslendirmeKapat();
   };
-  recog.onend=()=>{ if(listening){try{recog.start();}catch(e){}} };
-  try{ recog.start(); listening=true;
-    st.innerHTML='<span class="rec-dot"></span> Dinleniyor…';
-    document.getElementById('voiceCard').classList.add('live');
-    document.getElementById('discWrap').classList.add('rec');
-    document.getElementById('micHint').textContent='Dinleniyor… bırakınca duracak';
-  }catch(e){ st.textContent='Başlatılamadı: '+e.message; }
+  /* Android sessizlikte tanımayı kendiliğinden bitirir; parmak hâlâ
+     bastıysa yeniden başlatılır. iPhone'da dokunuş dışında yeniden
+     başlatma reddedildiği için yapılmaz. */
+  recog.onend=()=>{
+    if(listening&&!IOS){ try{recog.start();return;}catch(e){} }
+    bitti=true;
+    if(listening)seslendirmeKapat();
+    const f=sesBittiCoz; sesBittiCoz=null; if(f)f();
+  };
+  try{ recog.start(); }
+  catch(e){ sesMesaj('⚠️ Başlatılamadı: '+escapeHtml(e.message)); return false; }
+  listening=true;
+  document.getElementById('voiceStatus').innerHTML='<span class="rec-dot"></span> Dinleniyor…';
+  document.getElementById('voiceCard').classList.add('live');
+  document.getElementById('discWrap').classList.add('rec');
+  document.getElementById('micHint').textContent='Dinleniyor… bırakınca duracak';
+  return true;
+}
+function seslendirmeKapat(){
+  listening=false;
+  document.getElementById('voiceCard').classList.remove('live');
+  document.getElementById('discWrap').classList.remove('rec');
+  document.getElementById('micHint').textContent='Basılı tut, konuş, bırak';
 }
 /* iPhone'da ses tanıma yoksa: yazı kutusuna götür, klavyedeki mikrofonla
    söylet, Kaydet'e bastır. Aynı onay ve çek akışından geçer. */
@@ -1439,28 +1482,44 @@ function dikteyeYonlendir(){
   const lb=document.getElementById('liveBox'); if(lb)lb.style.display='none';
   setTimeout(()=>{const t=document.getElementById('voiceText');if(t)t.focus();},60);
 }
+/* Durdurur ve son sözcüklerin gelmesini bekler: tanıma bırakıldıktan sonra
+   da birkaç yüz ms sonuç gönderiyor; beklenmeden kaydedilirse cümlenin
+   sonu kayboluyordu. En fazla 1,5 sn beklenir. */
 function stopVoice(){
-  if(!listening)return;
-  listening=false; try{recog&&recog.stop();}catch(e){}
-  document.getElementById('voiceStatus').textContent='Kayıt durdu.';
-  document.getElementById('voiceCard').classList.remove('live');
-  document.getElementById('discWrap').classList.remove('rec');
-  document.getElementById('micHint').textContent='Konuş, otomatik yazıya dökülsün';
+  if(!recog)return Promise.resolve();
+  const r=recog;
+  const bitti=new Promise(res=>{ sesBittiCoz=res; setTimeout(res,1500); });
+  if(listening){ seslendirmeKapat(); document.getElementById('voiceStatus').textContent='Kayıt durdu.'; }
+  try{ r.stop(); }catch(e){ const f=sesBittiCoz; sesBittiCoz=null; if(f)f(); }
+  return bitti;
 }
 
 /* ---------- BASILI TUT / BIRAK ---------- */
-let holdTimer=null, held=false;
+let held=false, basmaAni=0;
 function bindHold(el,opts={}){
   if(!el)return;
+  /* touch-action:none — parmak biraz kayınca tarayıcı kaydırma sanıp
+     pointercancel gönderiyor, kayıt yarıda kesiliyordu. */
+  el.style.touchAction='none';
   const down=e=>{
-    e.preventDefault(); held=false;
-    holdTimer=setTimeout(()=>{ held=true; startVoice(); },140);
+    e.preventDefault();
+    if(held)return;
+    try{el.setPointerCapture(e.pointerId);}catch(_){}
+    basmaAni=Date.now();
+    held=startVoice();                 // dokunuşun içinde, beklemeden
   };
   const up=e=>{
-    e.preventDefault(); clearTimeout(holdTimer);
-    if(held){ stopVoice(); autoSaveVoice(); }
+    e.preventDefault();
+    if(!held)return;
+    held=false;
+    const kisa=Date.now()-basmaAni<350;
+    stopVoice().then(()=>{
+      const txt=document.getElementById('voiceText').value.trim();
+      if(kisa&&!txt){ sesMesaj('🎤 Basılı tut, konuş, sonra bırak.'); return; }
+      autoSaveVoice();
+    });
   };
-  el.addEventListener('pointerdown',e=>{ try{el.setPointerCapture(e.pointerId);}catch(_){}; down(e); });
+  el.addEventListener('pointerdown',down);
   el.addEventListener('pointerup',up);
   el.addEventListener('pointercancel',up);
   el.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
@@ -1551,7 +1610,7 @@ async function autoSaveVoice(){
         +'</div>';
       setTimeout(()=>{lb.style.display='none';lb.innerHTML='';},6000);
     }
-  },700);
+  },150);   // son sonuçlar artık stopVoice'ta bekleniyor
 }
 
 /* ---------- KAMERA + OCR ---------- */
@@ -3294,7 +3353,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-09.12";
+const APP_VERSION="2026-10-14.1";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}
