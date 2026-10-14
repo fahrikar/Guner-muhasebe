@@ -160,8 +160,10 @@ try{
   check("konuşma kalemlere ayrıldı",tablo.includes("Emanet")&&tablo.includes("Yakıt"),tablo.slice(0,120));
 
   /* --- borç / alacak ayrımı --- */
-  check("tabloda BORÇ ve ALACAK blokları ayrı",
-    tablo.includes("BORÇ")&&tablo.includes("ALACAK")&&tablo.includes("NET"),tablo.slice(0,160));
+  check("tabloda BORÇLAR ve ALACAKLAR bölümleri ayrı, bakiye var",
+    tablo.includes("BORÇLAR")&&tablo.includes("ALACAKLAR")&&tablo.includes("Bakiye")
+    &&tablo.indexOf("Emanet")<tablo.indexOf("ALACAKLAR")&&tablo.indexOf("Tahsilat")>tablo.indexOf("ALACAKLAR"),
+    tablo.slice(0,160));
   const yon=await page.evaluate(()=>{
     const y=yonAyir(allItems(NOTES));
     return {borc:y.borc.map(i=>i.known),alacak:y.alacak.map(i=>i.known),
@@ -222,27 +224,19 @@ try{
   /* Tablo düzeni: sütunlar iki kart arasında da aynı hizada olmalı, rakamlar
      eşit genişlikte, silme düğmesinin dokunma alanı parmakla tutturulabilir
      olmalı. Bunlar gözle bakılınca fark edilmeyip sessizce bozulan şeyler. */
+  /* Tablo Rapor'la aynı düzende: tutarlar eşit genişlikte rakamla, silme
+     düğmesi parmakla tutturulabilir. */
   const duzen=await page.evaluate(()=>{
-    const t=[...document.querySelectorAll('#tableBox table.tbl')];
-    if(!t.length)return null;
-    const kolon=t.map(x=>[...x.querySelectorAll('col')].map(c=>c.getBoundingClientRect().width));
-    const num=document.querySelector('#tableBox td.num');
-    const btn=document.querySelector('#tableBox td.sil button');
+    const num=document.querySelector('#tableBox .para');
+    const btn=document.querySelector('#tableBox .satirSil');
     const bs=btn?btn.getBoundingClientRect():null;
-    return {tablo:t.length,kolon,
-      sabit:getComputedStyle(t[0]).tableLayout,
-      tnum:num?getComputedStyle(num).fontVariantNumeric:'',
+    return {tnum:num?getComputedStyle(num).fontVariantNumeric:'',
       btnW:bs?Math.round(bs.width):0, btnH:bs?Math.round(bs.height):0};
   });
-  check("tablo sütunları sabit genişlikte",duzen&&duzen.sabit==='fixed',JSON.stringify(duzen));
   check("tutarlar eşit genişlikte rakamla yazılıyor",
     duzen&&duzen.tnum.includes('tabular-nums'),duzen&&duzen.tnum);
   check("silme düğmesi parmakla tutturulabiliyor (>=36px)",
     duzen&&duzen.btnW>=36&&duzen.btnH>=36,duzen&&(duzen.btnW+'x'+duzen.btnH));
-  /* Birden çok blok varsa (BORÇ + ALACAK) sütunları birbirini tutmalı. */
-  if(duzen&&duzen.tablo>1)
-    check("BORÇ ve ALACAK sütunları aynı hizada",
-      duzen.kolon[0].every((w,i)=>Math.abs(w-duzen.kolon[1][i])<1),JSON.stringify(duzen.kolon));
 
   /* Ayarlar artık başlıktaki dişlinin arkasında; tabloyu doldurmuyor. */
   check("tablo ekranı ayar kartlarıyla dolmuyor",
@@ -332,7 +326,7 @@ try{
   check("vade kayda yazıldı",await page.evaluate(()=>NOTES[0].vade==='2030-11-26'));
   await page.evaluate(()=>{go('notes');renderTable();});
   await page.waitForTimeout(200);
-  check("vade tabloda görünüyor",(await page.textContent("#tableBox")).includes("vade 26.11.2030"));
+  check("vade tabloda görünüyor",(await page.textContent("#tableBox")).includes("Vade 26.11.2030"));
   /* Vadesi yarın olan kayıt ana ekranda hatırlatılıyor. */
   check("yarın vadeli kayıt hatırlatılıyor",
     await page.evaluate(()=>{
@@ -345,12 +339,12 @@ try{
      bunu ezmiyor. */
   check("vadesiz alacakta vade ekle bağlantısı var",
     await page.evaluate(()=>{ delete NOTES[0].vade; renderTable();
-      return document.getElementById('tableBox').textContent.includes('+ vade ekle'); }));
+      return document.getElementById('tableBox').textContent.includes('vade yok · ekle'); }));
   await page.evaluate(()=>{ window.prompt=()=>'26.11.2030'; return kayitVade(NOTES[0].id); });
   await page.waitForTimeout(200);
   check("tablodan vade eklenebiliyor",
     await page.evaluate(()=>NOTES[0].vade==='2030-11-26'
-      &&document.getElementById('tableBox').textContent.includes('vade 26.11.2030')));
+      &&document.getElementById('tableBox').textContent.includes('Vade 26.11.2030')));
   check("elle girilen vade buluttan ezilmiyor",
     await page.evaluate(()=>{
       const kopya=JSON.parse(JSON.stringify(NOTES[0])); delete kopya.vade; delete kopya.vadeYerel;

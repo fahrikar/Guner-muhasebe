@@ -140,6 +140,8 @@
   video,canvas{width:100%;border-radius:16px;background:#0c0c0e}
   .rec-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);display:inline-block;animation:pulse 1s infinite}
   @keyframes pulse{50%{opacity:.3}}
+  .satirSil{border:0;background:transparent;color:var(--danger);font-size:20px;line-height:1;
+    min-width:36px;min-height:36px;margin:-8px -10px -8px 0;cursor:pointer}
   .pill{display:inline-block;font-size:11px;padding:3px 11px;border-radius:20px;background:#f2ebdd;
     border:1px solid var(--line);color:var(--sub);margin-right:6px}
   .banner{background:#f8efd9;border:1px solid #e7cf95;color:#7a5711;border-radius:16px;
@@ -2197,96 +2199,15 @@ async function saveNote(type,zorlaCek){
   alert('✅ '+items.length+' kalem kaydedildi:\n'+items.map(i=>'• '+i.known+': '+money(i.amount)).join('\n'));
 }
 function renderNotes(){ renderTable(); }
+/* Tablo: Rapor'la aynı düzen, bütün kayıtlar, her satırda silme. */
 function renderTable(){
   const box=document.getElementById('tableBox');
   if(!box)return;
-  const rows=[];
-  onayliNotes().forEach(n=>(n.items||[]).forEach((it,idx)=>rows.push({noteId:n.id,idx,
-    tarih:fmt(n.createdAt),kategori:it.known||it.category,grup:it.grup||'—',
-    tutar:it.amount,taninan:!!it.known,anomali:!!it.anomali,mudur:n.mudur||'',
-    belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():'',
-    vade:n.vade||'',
-    kapandi:kalemKapanis(n,it), takip:takipKalemi(n,it),
-    yon:it.known?yonOf(it.known):null})));
-  if(!rows.length){box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;}
-
-  /* Borç ve alacak ayrı tablolarda: tek listede iç içe durunca hangi paranın
-     girdiği hangisinin çıktığı okunmuyordu ve TOPLAM ikisini topluyordu. */
-  const borcR=rows.filter(r=>r.yon==='borc');
-  const alacakR=rows.filter(r=>r.yon==='alacak');
-  /* Onay ekranından önce kaydedilmiş eski kalemlerin bir kısmının kategorisi
-     boş olabilir; onlar tabloda gösterilmiyor. Yeni kayıtlarda böyle bir
-     kalem oluşmuyor. */
-  const tanimsizR=[];
-  const topla=a=>a.reduce((x,y)=>x+y.tutar,0);
-  const tBorc=topla(borcR), tAlacak=topla(alacakR), net=tAlacak-tBorc;
-
-  /* Alt satırlar (müdür, belge, grup) tek satırda birleşti: her biri ayrı
-     div olunca satır yükseliyor ve tutarlar birbirinden uzaklaşıyordu. */
-  const satir=r=>{
-    const alt=[(CURRENT&&CURRENT.rol==='patron'&&r.mudur)?r.mudur:'',r.belge,
-               r.taninan?r.grup:'tanımsız · Excel\'e girmez'].filter(Boolean);
-    return '<tr style="border-top:1px solid var(--line)'+(r.taninan?'':';background:#fdf6e6')+'">'
-      +'<td class="tar">'+r.tarih.split(' ')[0]+'</td>'
-      +'<td>'+escapeHtml(r.kategori)+(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')
-        /* Vadeye dokununca değişir; alacakta vade yoksa eklenebilir
-           (vade alanı gelmeden önce kaydedilmiş satırlar için de). */
-        +(r.vade
-          ?'<div class="alt" style="font-weight:600;cursor:pointer'+(daysUntil(r.vade)<0?';color:var(--danger)':'')+'" '
-            +'onclick="kayitVade('+r.noteId+')">vade '+fmtDate(r.vade)+' ✎</div>'
-          :r.yon==='alacak'
-            ?'<div class="alt" style="cursor:pointer;color:var(--warn,#a9761e)" onclick="kayitVade('+r.noteId+')">+ vade ekle</div>'
-            :'')
-        +(alt.length?'<div class="alt">'+escapeHtml(alt.join(' · '))+'</div>':'')
-        +(r.kapandi
-          ?'<div class="alt" style="color:var(--ok);font-weight:600">✓ '+(r.yon==='alacak'?'tahsil edildi':'ödendi')+' '+fmtDate(r.kapandi)+'</div>'
-          :r.takip&&r.yon
-            ?'<div class="alt" style="cursor:pointer;text-decoration:underline" onclick="kalemKapat('+r.noteId+','+r.idx+')">'
-              +(r.yon==='alacak'?'tahsil edildi işaretle':'ödendi işaretle')+'</div>'
-            :'')+'</td>'
-      +'<td class="num"'+(r.kapandi?' style="opacity:.55"':'')+'>'+money(r.tutar)+'</td>'
-      +'<td class="sil"><button type="button" aria-label="Sil" '
-        +'onclick="delRow('+r.noteId+','+r.idx+')">×</button></td></tr>';
-  };
-
-  /* Her blok kendi başlığı, kendi çizgisi ve kendi toplamıyla ayrı bir kart.
-     colgroup iki blokta da aynı: tarih ve tutar sütunları kartlar arasında
-     da aynı hizaya düşsün. */
-  const kolonlar='<colgroup><col style="width:74px"><col>'
-                +'<col style="width:112px"><col style="width:38px"></colgroup>';
-  const blok=(baslik,liste,toplam,renk,altYazi)=>{
-    if(!liste.length)return '';
-    return '<div class="card" style="padding:0;overflow:hidden;border-top:3px solid '+renk+'">'
-      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:13px 14px 10px">'
-      +'<div><div style="font-weight:700;letter-spacing:-.01em;color:'+renk+'">'+baslik+'</div>'
-      +'<div class="muted" style="font-size:12px">'+altYazi+' · '+liste.length+' kalem</div></div>'
-      +'<div class="para" style="font-weight:700;font-size:17px;white-space:nowrap;color:'+renk+'">'+money(toplam)+'</div></div>'
-      +'<table class="tbl">'+kolonlar
-      +'<thead><tr><th>Tarih</th><th>Kategori</th><th class="num">Tutar</th><th></th></tr></thead><tbody>'
-      +liste.map(satir).join('')
-      +'<tr style="border-top:2px solid '+renk+';background:#faf6ee">'
-      +'<td colspan="2" style="padding:11px 8px;font-weight:700">'+baslik+' toplamı</td>'
-      +'<td class="num" style="padding:11px 8px;font-weight:700">'+money(toplam)+'</td><td></td></tr>'
-      +'</tbody></table></div>';
-  };
-
-  let html=blok('BORÇ',borcR,tBorc,'var(--danger)','çıkan para')
-          +blok('ALACAK',alacakR,tAlacak,'var(--ok)','giren para')
-          +blok('TANIMSIZ',tanimsizR,topla(tanimsizR),'var(--warn)','hesaba katılmıyor');
-  /* Net, iki tarafın farkı — tek TOPLAM satırı yanıltıcıydı. */
-  if(borcR.length||alacakR.length){
-    const netRenk=net<0?'var(--danger)':'var(--ok)';
-    html+='<div class="card" style="border-top:3px solid var(--graphite)">'
-      +'<div style="display:flex;justify-content:space-between;padding:5px 0 9px;border-bottom:1px solid var(--line)">'
-      +'<span>Alacak (giren)</span><b class="para" style="color:var(--ok)">'+money(tAlacak)+'</b></div>'
-      +'<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:2px solid var(--graphite)">'
-      +'<span>Borç (çıkan)</span><b class="para" style="color:var(--danger)">−'+money(tBorc)+'</b></div>'
-      +'<div style="display:flex;justify-content:space-between;padding:11px 0 2px;font-size:16px">'
-      +'<b>NET</b><b class="para" style="color:'+netRenk+'">'+(net<0?'−':'')+money(Math.abs(net))+'</b></div>'
-      +'<div class="muted" style="margin-top:6px">'
-      +(net<0?'Bu dönemde çıkan para girenden fazla.':'Bu dönemde giren para çıkandan fazla.')+'</div></div>';
+  const list=onayliNotes();
+  if(!list.some(n=>(n.items||[]).length)){
+    box.innerHTML='<div class="empty">Henüz kalem yok.<br>Ana ekranda mikrofonu basılı tutup konuş.</div>';return;
   }
-  box.innerHTML=html||'';
+  box.innerHTML=borcAlacakHtml(list,'Bütün kayıtlar',true,'Borç kaydı yok.','Alacak kaydı yok.');
 }
 
 /* ---------- AYARLAR PENCERESİ ----------
@@ -2688,17 +2609,11 @@ function vadeEtiketi(v){
     +(gecti?'background:#fbe3e1;color:var(--danger)':g<=7?'background:#fdf1d8;color:#8a5d12':'background:#efe8da;color:var(--ink)')
     +'">Vade '+fmtDate(v)+'</span> <span style="font-size:12px;'+(gecti?'color:var(--danger);font-weight:600':'color:var(--sub)')+'">'+kalan+'</span>';
 }
-function report(kind){
-  curReport=kind;
-  [['tabW','week'],['tabM','month'],['tabA','all']].forEach(([id,k])=>{
-    const el=document.getElementById(id); if(el)el.classList.toggle('on',kind===k);
-  });
-  const now=new Date(); let from;
-  if(kind==='week'){from=new Date(now);from.setDate(now.getDate()-7);}
-  else if(kind==='month'){from=new Date(now.getFullYear(),now.getMonth(),1);}
-  else from=new Date(0);
-  const list=onayliNotes().filter(n=>new Date(n.createdAt)>=from);
-  const box=document.getElementById('reportBox');
+/* Borç/alacak ekranının ortak çizimi: Rapor ve Tablo aynı düzeni kullanır
+   (üstte BORÇ/ALACAK kutuları ve bakiye, ayrı renkli bölümler, vade
+   rozetleri, Ödendi/Tahsil edildi, Kapananlar, kategori dağılımı).
+   sil: Tablo'da her satırda silme düğmesi. */
+function borcAlacakHtml(list,baslik,sil,bosBorc,bosAlacak){
   const its=allItems(list);
   const y=yonAyir(its);
 
@@ -2708,7 +2623,8 @@ function report(kind){
     satirlar.push({noteId:n.id,idx:n.items.indexOf(it),ad:it.known,tutar:it.amount,tarih:n.createdAt,vade:n.vade||'',
                    kapandi:kalemKapanis(n,it),takip:takipKalemi(n,it),
                    mudur:n.mudur||'',alacak:yonOf(it.known)==='alacak',
-                   serbest:!CATEGORY_MAP.some(c=>c.ad===it.known)});
+                   serbest:!CATEGORY_MAP.some(c=>c.ad===it.known),anomali:!!it.anomali,
+                   belge:n.belgeTur?(n.belgeTur+' '+(n.belgeNo||'')).trim():''});
   }));
   /* Vadeli olanlar üstte (en yakın vade başta), vadesizler en yeni başta. */
   const sirala=a=>a.slice().sort((p,q)=>p.vade&&q.vade?p.vade.localeCompare(q.vade)
@@ -2729,7 +2645,7 @@ function report(kind){
     +'<div class="muted" style="font-size:12px">'+adet+' kalem</div></div>';
   const head='<div class="card">'
     +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
-    +'<b>'+RAPOR_AD[kind]+'</b><span class="muted" style="font-size:12px">'+list.length+' kayıt</span></div>'
+    +'<b>'+baslik+'</b><span class="muted" style="font-size:12px">'+list.length+' kayıt</span></div>'
     +'<div style="display:flex;gap:10px">'
     +kutu('BORÇ',y.tBorc,borclar.length,'var(--danger)','#fbeceb')
     +kutu('ALACAK',y.tAlacak,alacaklar.length,'var(--ok)','#e8f3ea')
@@ -2749,14 +2665,18 @@ function report(kind){
       +(vadeli?' · '+vadeli+' vadeli':'')+'</div>';
     h+=liste.map(r=>'<div style="padding:11px 14px;border-top:1px solid var(--line)">'
       +'<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">'
-      +'<div style="font-weight:600;min-width:0;overflow-wrap:anywhere">'+escapeHtml(r.ad)+'</div>'
-      +'<div class="para" style="font-weight:700;white-space:nowrap;color:'+renk+'">'+money(r.tutar)+'</div></div>'
+      +'<div style="font-weight:600;min-width:0;overflow-wrap:anywhere">'+escapeHtml(r.ad)
+        +(r.anomali?' <span class="pill" style="color:#a9761e">olağandışı</span>':'')+'</div>'
+      +'<div style="display:flex;align-items:baseline;gap:4px">'
+      +'<div class="para" style="font-weight:700;white-space:nowrap;color:'+renk+'">'+money(r.tutar)+'</div>'
+      +(sil?'<button type="button" class="satirSil" aria-label="Sil" onclick="delRow('+r.noteId+','+r.idx+')">×</button>':'')
+      +'</div></div>'
       /* Vade borç verme/alma kayıtlarında anlamlı; sıradan giderde (Yakıt,
          Kira…) "vade yok" yazısı yalnız kalabalık yapıyor. */
       +(r.vade||r.serbest?'<div style="margin-top:5px;cursor:pointer" onclick="kayitVade('+r.noteId+')">'+vadeEtiketi(r.vade)+'</div>':'')
       +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:3px">'
       +'<div class="muted" style="font-size:11px">kaydedildi '+fmt(r.tarih).split(' ')[0]
-        +(r.mudur?' · '+escapeHtml(r.mudur):'')+'</div>'
+        +(r.mudur?' · '+escapeHtml(r.mudur):'')+(r.belge?' · '+escapeHtml(r.belge):'')+'</div>'
       +(r.takip?'<button class="btn sm ghost" style="padding:6px 11px;font-size:12px;white-space:nowrap" '
           +'onclick="kalemKapat('+r.noteId+','+r.idx+')">'+(r.alacak?'✓ Tahsil edildi':'✓ Ödendi')+'</button>':'')
       +'</div></div>').join('');
@@ -2786,16 +2706,28 @@ function report(kind){
 
   const unk=unknownItems(list);
   const unkHtml=unk.length?`<div class="banner">${unk.length} kalem tanımlanamadı ve rapora/Excel'e alınmadı: ${unk.slice(0,6).map(u=>escapeHtml(u.category)).join(', ')}${unk.length>6?'…':''}</div>`:'';
+  return head+unkHtml
+    +bolum('BORÇLAR','ödenecek · çıkan para',borclar,y.tBorc,'var(--danger)','#fbeceb',bosBorc)
+    +bolum('ALACAKLAR','tahsil edilecek · giren para',alacaklar,y.tAlacak,'var(--ok)','#e8f3ea',bosAlacak)
+    +kapananHtml+kategori;
+}
+function report(kind){
+  curReport=kind;
+  [['tabW','week'],['tabM','month'],['tabA','all']].forEach(([id,k])=>{
+    const el=document.getElementById(id); if(el)el.classList.toggle('on',kind===k);
+  });
+  const now=new Date(); let from;
+  if(kind==='week'){from=new Date(now);from.setDate(now.getDate()-7);}
+  else if(kind==='month'){from=new Date(now.getFullYear(),now.getMonth(),1);}
+  else from=new Date(0);
+  const list=onayliNotes().filter(n=>new Date(n.createdAt)>=from);
   const disari='<div class="card"><div style="font-weight:600;margin-bottom:8px">Dışa aktar</div>'
     +'<div class="row"><button class="btn sm" onclick="exportReport(\'excel\')">Excel</button>'
     +'<button class="btn sm ghost" onclick="exportReport(\'word\')">Word</button>'
     +'<button class="btn sm ghost" onclick="exportReport(\'pdf\')">PDF</button></div>'
     +'<button class="btn" style="margin-top:10px" onclick="exportFullTemplate()">Tam Excel Şablonu</button></div>';
-
-  box.innerHTML=head+unkHtml
-    +bolum('BORÇLAR','ödenecek · çıkan para',borclar,y.tBorc,'var(--danger)','#fbeceb','Bu dönemde borç yok.')
-    +bolum('ALACAKLAR','tahsil edilecek · giren para',alacaklar,y.tAlacak,'var(--ok)','#e8f3ea','Bu dönemde alacak yok.')
-    +kapananHtml+kategori+disari;
+  document.getElementById('reportBox').innerHTML=
+    borcAlacakHtml(list,RAPOR_AD[kind],false,'Bu dönemde borç yok.','Bu dönemde alacak yok.')+disari;
   window._reportList=list;
 }
 function exportReport(t){
@@ -3465,7 +3397,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.4";
+const APP_VERSION="2026-10-14.5";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni
