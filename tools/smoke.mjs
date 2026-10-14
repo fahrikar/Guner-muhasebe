@@ -1303,6 +1303,30 @@ try{
     await page.evaluate(()=>{ yaziylaGir();
       const ok=!/yakıt/i.test(document.getElementById('voiceStatus').textContent+document.getElementById('voiceText').placeholder);
       go('home'); return ok; }));
+  /* 34 — iPhone büyütmesi: hiçbir yazı kutusu 16 px'ten küçük değil (her
+     ekranda ve pencerelerde), belge kaymıyor, uzun ekran içerikte kayıyor. */
+  check("bütün yazı kutuları en az 16 px (iPhone büyütmesi tetiklenmez)",
+    await page.evaluate(async()=>{
+      const kucuk=[];
+      const tara=yer=>document.querySelectorAll('input:not([type=checkbox]):not([type=radio]),textarea,select').forEach(e=>{
+        if(parseFloat(getComputedStyle(e).fontSize)<16)kucuk.push(yer+':'+(e.id||e.name||e.tagName));});
+      for(const ekran of ['home','notes','reports','payments','sites','factory','pitch','camera','voice']){ go(ekran); tara(ekran); }
+      siteTab('ayar'); tara('sites-ayar');
+      onaySor([{category:'Deneme',amount:5,known:null}],'deneme 5'); tara('onay'); onayKapat(null);
+      ayarAc(); togglePinForm(); tara('ayar'); ayarKapat();
+      go('home');
+      window.__kucuk=kucuk.join(', ');
+      return !kucuk.length;
+    }),await page.evaluate(()=>window.__kucuk));
+  check("belge kaymıyor, uzun ekran içerik alanında kayıyor",
+    await page.evaluate(()=>{
+      go('reports'); report('all');
+      const sc=document.scrollingElement;
+      const belgeSabit=getComputedStyle(document.body).overflow==='hidden'&&sc.scrollHeight<=window.innerHeight+1;
+      window.scrollTo(0,500); const kaymadi=window.scrollY===0;
+      go('home');
+      return belgeSabit&&kaymadi;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

@@ -211,6 +211,15 @@
   .offline.show{display:inline-block}
   header{padding-top:calc(16px + env(safe-area-inset-top))}
   nav{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+  /* iPhone, yazı boyutu 16 px'ten küçük bir kutuya dokununca sayfayı
+     büyütüyor ve klavye kapanınca büyütme kalıyordu: alt menü ekranın
+     altından, sağdaki sekme kenardan taşıyor, her ekran "kaymış"
+     görünüyordu. Bütün yazı kutuları en az 16 px (PIN kutusu zaten büyük). */
+  input:not([type=checkbox]):not([type=radio]):not(#pinInput),textarea,select{font-size:16px!important}
+  /* Belge kaymaz, yalnız içerik alanı (main) kayar: başlık ve alt menü
+     yerinde kalır, sayfa iPhone'da esneyip yerinden oynamaz. */
+  html,body{overflow:hidden;overscroll-behavior:none}
+  main{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 </style>
 </head>
 <body>
@@ -3516,7 +3525,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.9";
+const APP_VERSION="2026-10-14.10";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni
@@ -3592,7 +3601,21 @@ function initUpdates(){
    hemen önce çalışır. Bu yüzden başlatma o olayı beklemeli: gövde içinde
    doğrudan çalıştırılırsa `firebase` henüz tanımsız olur ve bulut sessizce
    kapalı kalırdı. */
+/* iPhone klavyesi açılırken belgeyi kaydırıyor, kapanınca geri getirmeyebiliyor;
+   ekran yukarı/aşağı kaymış kalıyordu. Klavye kapanınca (yazı kutusundan
+   çıkınca) belge en başa oturtulur — asıl kaydırma main'de, ona dokunulmaz. */
+function belgeyiYerineOturt(){
+  setTimeout(()=>{
+    const a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;   // başka kutuya geçildi
+    if(window.scrollY||document.documentElement.scrollTop||document.body.scrollTop){
+      window.scrollTo(0,0); document.documentElement.scrollTop=0; document.body.scrollTop=0;
+    }
+  },60);
+}
 async function boot(){
+  document.addEventListener('focusout',belgeyiYerineOturt);
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',belgeyiYerineOturt);
   initFirebase();
   const cw=document.getElementById('cloudWarn');
   if(cw&&!cloudOn)cw.textContent='Bulut bağlı değil — girişler sadece bu cihazda kalır. (Firebase config eklenmedi)';
