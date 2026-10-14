@@ -46,7 +46,10 @@
     color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
-    display:flex;flex-direction:column;min-height:100vh;
+    display:flex;flex-direction:column;
+    /* Görünen yükseklik (dvh): iPhone'da 100vh adres çubuğu ve çentik
+       payları yüzünden ekrandan uzun sayılıyordu. */
+    height:100vh;height:100dvh;
   }
   header{
     padding:16px 20px;font-weight:600;font-size:16px;letter-spacing:-.01em;
@@ -64,9 +67,13 @@
     background:none;border:0;border-radius:11px;color:var(--sub);cursor:pointer;
   }
   .ikon:active{background:rgba(0,0,0,.06)}
-  main{flex:1;overflow-y:auto;padding-bottom:84px}
+  main{flex:1;min-height:0;overflow-y:auto;padding-bottom:calc(78px + env(safe-area-inset-bottom))}
   .screen{display:none;padding:18px}
   .screen.active{display:block}
+  /* Ana ekran kaydırmasız: üç kutu başlık ile alt menü arasındaki GERÇEK
+     boş alanı paylaşır. Eskiden yükseklik 100vh-154px diye sabitti; iPhone'da
+     çentik/alt çubuk payları ve şantiye bandı eklenince sayfa taşıyordu. */
+  #home.active{display:flex;flex-direction:column;height:100%;box-sizing:border-box}
   .btn{border:0;border-radius:980px;padding:13px 20px;font-size:15px;font-weight:500;letter-spacing:-.01em;
     color:#fff;background:var(--accent);width:100%;cursor:pointer;box-shadow:0 4px 14px rgba(29,29,31,.18)}
   .btn.ghost{background:transparent;color:var(--ink);box-shadow:none;border:1px solid #cfc5b4}
@@ -85,7 +92,7 @@
   h2{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:4px 0 18px}
 
   /* HOME — yatay (üst/alt) bölme */
-  .split{display:flex;flex-direction:column;height:calc(100vh - 154px);gap:16px;margin-top:4px}
+  .split{display:flex;flex-direction:column;flex:1;min-height:0;gap:16px;margin-top:4px}
   .hero{flex:1;position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:14px;border-radius:28px;overflow:hidden;cursor:pointer;border:1px solid var(--line);
     background:var(--card);box-shadow:var(--sh);transition:transform .14s ease}
@@ -102,12 +109,17 @@
   /* Ana ekranda üç kutu (ses, kamera, yazı) alt alta: yuvarlaklar ve
      yazılar küçülür ki küçük telefonda da üçü bir ekrana sığsın. */
   .split.uc{gap:12px}
-  .split.uc .hero{gap:6px}
+  .split.uc .hero{gap:6px;min-height:0;overflow:hidden}
   .split.uc .discwrap,.split.uc .disc,.split.uc .waves,.split.uc .waves span{width:74px;height:74px}
   .split.uc .disc svg{width:34px;height:34px}
   .split.uc .hero h3{font-size:19px}
   .split.uc .hero p{font-size:13px}
-  @media (max-height:700px){ .split.uc .hero p{display:none} }
+  @media (max-height:760px){ .split.uc .hero p{display:none} }
+  @media (max-height:640px){
+    .split.uc .discwrap,.split.uc .disc,.split.uc .waves,.split.uc .waves span{width:58px;height:58px}
+    .split.uc .disc svg{width:28px;height:28px}
+    .split.uc .hero h3{font-size:17px}
+  }
   .hero h3{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
   .hero p{margin:0;color:var(--sub);font-size:14px;text-align:center;padding:0 24px;letter-spacing:-.01em}
 
@@ -274,6 +286,15 @@
         <p id="micHint">Basılı tut, konuş, bırak</p>
         <div id="liveBox" style="display:none;width:100%;padding:0 18px"></div>
       </div>
+      <div class="hero yaz" onclick="yaziylaGir()">
+        <div class="disc yaz">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path><line x1="14" y1="8" x2="17" y2="11"></line>
+          </svg>
+        </div>
+        <h3>Yazarak Gir</h3>
+        <p>Klavyeyle yaz, kaydet</p>
+      </div>
       <div class="hero cam" onclick="go('camera')">
         <div class="disc cam">
           <svg viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -283,15 +304,6 @@
         </div>
         <h3>Kamera / Video</h3>
         <p>Fotoğraftaki yazıyı metne çevir</p>
-      </div>
-      <div class="hero yaz" onclick="yaziylaGir()">
-        <div class="disc yaz">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path><line x1="14" y1="8" x2="17" y2="11"></line>
-          </svg>
-        </div>
-        <h3>Yazarak Gir</h3>
-        <p>Klavyeyle yaz, kaydet</p>
       </div>
     </div>
   </section>
@@ -826,7 +838,7 @@ function applyRole(){
   if(np)np.style.display=halisahaGorebilir()?'':'none';
   // başlıkta kim olduğunu göster
   const hr=document.getElementById('hdrRight');
-  if(hr)hr.textContent=CURRENT.ad+(patron?'':' · sadece gider girişi');
+  if(hr)hr.textContent=CURRENT.ad;     // müdür artık gelir de giriyor
   document.getElementById('btnAyar').style.display='';
   // müdür ana ekranda sadece mikrofonu görsün (kamera opsiyonel kalsın)
   document.body.classList.toggle('mudur',!patron);
@@ -1544,10 +1556,9 @@ function yaziylaGir(){
   document.getElementById('voiceBaslik').textContent='Yazarak Giriş';
   /* Yazı modunda ses dalgası ve "konuştukların" yazısı anlamsız. */
   document.getElementById('voiceCard').classList.add('yazi');
-  document.getElementById('voiceText').placeholder='Buraya yaz… Örn: yakıt 500';
+  document.getElementById('voiceText').placeholder='Buraya yaz…';
   document.getElementById('hdrTitle').textContent='Yazarak Giriş';
-  document.getElementById('voiceStatus').innerHTML=
-    '<span class="muted">Örn: <i>yakıt 500</i> · <i>Mehmet\'e 10 bin verildi 26 Kasım\'da alınacak</i> · <i>Ali\'den 50 bin çek aldım</i></span>';
+  document.getElementById('voiceStatus').textContent='';
   setTimeout(()=>{const t=document.getElementById('voiceText');if(t)t.focus();},60);
 }
 function dikteyeYonlendir(){
@@ -3505,7 +3516,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.8";
+const APP_VERSION="2026-10-14.9";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni

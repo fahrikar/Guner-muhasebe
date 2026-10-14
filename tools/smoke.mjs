@@ -1282,7 +1282,7 @@ try{
   check("ana ekranda üç giriş kutusu var",
     await page.evaluate(()=>{ go('home');
       const h=[...document.querySelectorAll('#home .split .hero')].map(x=>x.textContent);
-      return h.length===3&&/Sesli/.test(h[0])&&/Kamera/.test(h[1])&&/Yazarak/.test(h[2]); }));
+      return h.length===3&&/Sesli/.test(h[0])&&/Yazarak/.test(h[1])&&/Kamera/.test(h[2]); }));
   await page.evaluate(()=>{ yaziylaGir(); document.getElementById('voiceText').value='yakıt 640'; });
   check("yazarak giriş ekranı açılıyor",
     await page.evaluate(()=>document.getElementById('voiceBaslik').textContent==='Yazarak Giriş'
@@ -1292,6 +1292,17 @@ try{
   check("yazılan kayıt aynı onay akışına giriyor",
     await page.evaluate(()=>onayKalemler.length===1&&onayKalemler[0].tutar===640));
   await page.evaluate(()=>{ onayKapat(null); document.getElementById('voiceText').value=''; go('home'); });
+  /* 33 — ana ekran kaydırmasız: üç kutu görünen alana sığıyor; sıra
+     Sesli, Yazarak, Kamera; yazı modunda örnek yok. */
+  check("ana ekran kaydırmadan sığıyor, yazarak ortada",
+    await page.evaluate(()=>{ go('home');
+      const mn=document.querySelector('main');
+      const h=[...document.querySelectorAll('#home .split .hero h3')].map(x=>x.textContent);
+      return mn.scrollHeight-mn.clientHeight<=1&&h.join('|')==='Sesli Komut|Yazarak Gir|Kamera / Video'; }));
+  check("yazarak girişte örnek yazı yok",
+    await page.evaluate(()=>{ yaziylaGir();
+      const ok=!/yakıt/i.test(document.getElementById('voiceStatus').textContent+document.getElementById('voiceText').placeholder);
+      go('home'); return ok; }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'
