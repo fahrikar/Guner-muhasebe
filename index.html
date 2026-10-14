@@ -336,6 +336,7 @@
     <div class="tabs">
       <div class="tab on" id="tabW" onclick="report('week')">Haftalık</div>
       <div class="tab" id="tabM" onclick="report('month')">Aylık</div>
+      <div class="tab" id="tabA" onclick="report('all')">Tümü</div>
     </div>
     <div id="reportBox"></div>
   </section>
@@ -2384,6 +2385,7 @@ async function kayitVade(noteId){
   n.vadeYerel=true;                     // buluttan gelen kopya bunu ezmesin
   await Store.set('notes',NOTES); await kuyrukGuncelle(noteId);
   renderTable(); checkReminders();
+  if(document.getElementById('reports').classList.contains('active'))report(curReport);
 }
 /* Para kaydı siliniyor: yanlış dokunuş bir gideri sessizce yok ediyordu. */
 async function delRow(noteId,idx){
@@ -2636,65 +2638,119 @@ function checkAnomalies(items,noteId){
 
 /* ---------- RAPOR ---------- */
 let curReport='week';
+/* Rapor ekranı: borç ve alacak iki ayrı, belirgin bölüm. Eskiden kategori
+   toplamları tek sayfada iç içeydi ve konuşmada söylenen vade hiç
+   görünmüyordu. Artık her kalem kendi satırında, vadesi büyük ve ilk
+   bakışta: vadeli olanlar üstte, en yakın vade başta; geçmiş vade kırmızı.
+   Kategori dağılımı ayrıntı olarak kapalı duruyor. */
+const RAPOR_AD={week:'Son 7 gün',month:'Bu ay',all:'Tümü'};
+function vadeEtiketi(v){
+  if(!v)return '<span class="muted" style="font-size:12px">vade yok · <u>ekle</u></span>';
+  const g=daysUntil(v), gecti=g<0;
+  const kalan=g===0?'bugün':g===1?'yarın':gecti?Math.abs(g)+' gün geçti':g+' gün kaldı';
+  return '<span style="display:inline-block;padding:3px 9px;border-radius:9px;font-size:12px;font-weight:700;'
+    +(gecti?'background:#fbe3e1;color:var(--danger)':g<=7?'background:#fdf1d8;color:#8a5d12':'background:#efe8da;color:var(--ink)')
+    +'">Vade '+fmtDate(v)+'</span> <span style="font-size:12px;'+(gecti?'color:var(--danger);font-weight:600':'color:var(--sub)')+'">'+kalan+'</span>';
+}
 function report(kind){
   curReport=kind;
-  document.getElementById('tabW').classList.toggle('on',kind==='week');
-  document.getElementById('tabM').classList.toggle('on',kind==='month');
+  [['tabW','week'],['tabM','month'],['tabA','all']].forEach(([id,k])=>{
+    const el=document.getElementById(id); if(el)el.classList.toggle('on',kind===k);
+  });
   const now=new Date(); let from;
   if(kind==='week'){from=new Date(now);from.setDate(now.getDate()-7);}
-  else{from=new Date(now.getFullYear(),now.getMonth(),1);}
+  else if(kind==='month'){from=new Date(now.getFullYear(),now.getMonth(),1);}
+  else from=new Date(0);
   const list=onayliNotes().filter(n=>new Date(n.createdAt)>=from);
   const box=document.getElementById('reportBox');
   const its=allItems(list);
   const y=yonAyir(its);
-  const head=`<div class="card"><b>${kind==='week'?'Son 7 gün':'Bu ay'}</b>
-      <div class="muted" style="margin-top:6px">${list.length} kayıt · ${its.length} kalem</div>
-      <div style="display:flex;justify-content:space-between;padding:9px 0 0;border-top:1px solid var(--line);margin-top:9px">
-        <span>Alacak (giren)</span><b style="color:var(--ok)">${money(y.tAlacak)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:7px 0 9px;border-bottom:2px solid var(--graphite)">
-        <span>Borç (çıkan)</span><b style="color:var(--danger)">−${money(y.tBorc)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:10px 0 0;font-size:16px">
-        <b>NET</b><b style="color:${y.net<0?'var(--danger)':'var(--ok)'}">${y.net<0?'−':''}${money(Math.abs(y.net))}</b></div>
-      <div class="row" style="margin-top:12px">
-        <button class="btn sm" onclick="exportReport('excel')">Excel</button>
-        <button class="btn sm ghost" onclick="exportReport('word')">Word</button>
-        <button class="btn sm ghost" onclick="exportReport('pdf')">PDF</button>
-      </div>
-      <button class="btn" style="margin-top:10px" onclick="exportFullTemplate()">Tam Excel Şablonu</button></div>`;
-  /* Gruplu döküm de borç/alacak diye ayrı kartlarda: tek listede toplamak
-     giren ve çıkan parayı aynı kefeye koyuyordu. */
-  const grupKart=(baslik,liste,toplam,renk)=>{
-    const g=groupItems(liste);
-    if(!g.length)return '';
-    return `<div class="card" style="border-top:3px solid ${renk}">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <b style="color:${renk}">${baslik}</b><b style="color:${renk}">${money(toplam)}</b></div>`
-      +g.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)">
-        <div><div style="font-weight:500">${escapeHtml(x.category)}</div>
-          <div class="muted">${x.count} kayıt</div></div>
-        <div style="font-weight:600">${money(x.total)}</div>
-      </div>`).join('')+'</div>';
+
+  const satirlar=[];
+  list.forEach(n=>(n.items||[]).forEach(it=>{
+    if(!it.known)return;
+    satirlar.push({noteId:n.id,ad:it.known,tutar:it.amount,tarih:n.createdAt,vade:n.vade||'',
+                   mudur:n.mudur||'',alacak:yonOf(it.known)==='alacak',
+                   serbest:!CATEGORY_MAP.some(c=>c.ad===it.known)});
+  }));
+  /* Vadeli olanlar üstte (en yakın vade başta), vadesizler en yeni başta. */
+  const sirala=a=>a.slice().sort((p,q)=>p.vade&&q.vade?p.vade.localeCompare(q.vade)
+    :p.vade?-1:q.vade?1:String(q.tarih).localeCompare(String(p.tarih)));
+  const borclar=sirala(satirlar.filter(r=>!r.alacak)), alacaklar=sirala(satirlar.filter(r=>r.alacak));
+
+  const fark=y.tAlacak-y.tBorc;
+  const bakiye=Math.abs(fark)<0.005?'Borç ve alacak denk'
+    :(fark>0?'Alacak fazlası ':'Borç fazlası ')+money(Math.abs(fark));
+  const kutu=(baslik,tutar,adet,renk,zemin)=>
+     '<div style="flex:1;min-width:0;background:'+zemin+';border-radius:14px;padding:12px">'
+    +'<div style="font-size:12px;font-weight:700;letter-spacing:.04em;color:'+renk+'">'+baslik+'</div>'
+    +'<div class="para" style="font-size:19px;font-weight:700;color:'+renk+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+money(tutar)+'</div>'
+    +'<div class="muted" style="font-size:12px">'+adet+' kalem</div></div>';
+  const head='<div class="card">'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
+    +'<b>'+RAPOR_AD[kind]+'</b><span class="muted" style="font-size:12px">'+list.length+' kayıt</span></div>'
+    +'<div style="display:flex;gap:10px">'
+    +kutu('BORÇ',y.tBorc,borclar.length,'var(--danger)','#fbeceb')
+    +kutu('ALACAK',y.tAlacak,alacaklar.length,'var(--ok)','#e8f3ea')
+    +'</div>'
+    +'<div style="margin-top:10px;padding-top:9px;border-top:1px solid var(--line);display:flex;justify-content:space-between">'
+    +'<span class="muted">Bakiye</span><b style="color:'+(fark<0?'var(--danger)':'var(--ok)')+'">'+bakiye+'</b></div></div>';
+
+  const bolum=(baslik,altBaslik,liste,toplam,renk,zemin,bosYazi)=>{
+    const vadeli=liste.filter(r=>r.vade).length;
+    let h='<div class="card" style="padding:0;overflow:hidden;border:2px solid '+renk+'">'
+      +'<div style="background:'+renk+';color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      +'<div><b style="font-size:16px;letter-spacing:.05em">'+baslik+'</b>'
+      +'<div style="font-size:12px;opacity:.85">'+altBaslik+'</div></div>'
+      +'<b class="para" style="font-size:16px;white-space:nowrap">'+money(toplam)+'</b></div>';
+    if(!liste.length)return h+'<div class="muted" style="padding:14px">'+bosYazi+'</div></div>';
+    h+='<div class="muted" style="font-size:12px;padding:8px 14px 0">'+liste.length+' kalem'
+      +(vadeli?' · '+vadeli+' vadeli':'')+'</div>';
+    h+=liste.map(r=>'<div style="padding:11px 14px;border-top:1px solid var(--line)">'
+      +'<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">'
+      +'<div style="font-weight:600;min-width:0;overflow-wrap:anywhere">'+escapeHtml(r.ad)+'</div>'
+      +'<div class="para" style="font-weight:700;white-space:nowrap;color:'+renk+'">'+money(r.tutar)+'</div></div>'
+      /* Vade borç verme/alma kayıtlarında anlamlı; sıradan giderde (Yakıt,
+         Kira…) "vade yok" yazısı yalnız kalabalık yapıyor. */
+      +(r.vade||r.serbest?'<div style="margin-top:5px;cursor:pointer" onclick="kayitVade('+r.noteId+')">'+vadeEtiketi(r.vade)+'</div>':'')
+      +'<div class="muted" style="font-size:11px;margin-top:3px">kaydedildi '+fmt(r.tarih).split(' ')[0]
+        +(r.mudur?' · '+escapeHtml(r.mudur):'')+'</div></div>').join('');
+    return h+'</div>';
   };
-  const groupHtml=grupKart('BORÇ · çıkan',y.borc,y.tBorc,'var(--danger)')
-                 +grupKart('ALACAK · giren',y.alacak,y.tAlacak,'var(--ok)');
+
+  /* Kategori dağılımı: ayrıntı, kapalı durur. */
+  const grupSatir=(liste,renk)=>groupItems(liste).map(x=>
+     '<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)">'
+    +'<span>'+escapeHtml(x.category)+' <span class="muted">· '+x.count+'</span></span>'
+    +'<b class="para" style="color:'+renk+'">'+money(x.total)+'</b></div>').join('');
+  const kategori=its.length?'<details class="card"><summary style="cursor:pointer;font-weight:600">Kategoriye göre dağılım</summary>'
+    +(y.borc.length?'<div style="margin-top:10px;font-size:12px;font-weight:700;color:var(--danger)">BORÇ</div>'+grupSatir(y.borc,'var(--danger)'):'')
+    +(y.alacak.length?'<div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--ok)">ALACAK</div>'+grupSatir(y.alacak,'var(--ok)'):'')
+    +'</details>':'';
+
   const unk=unknownItems(list);
   const unkHtml=unk.length?`<div class="banner">${unk.length} kalem tanımlanamadı ve rapora/Excel'e alınmadı: ${unk.slice(0,6).map(u=>escapeHtml(u.category)).join(', ')}${unk.length>6?'…':''}</div>`:'';
-  /* Ham konuşma metinlerinin listesi kaldırıldı: rapor kategori toplamları
-     için var, her kaydın söylenmiş hâlini alt alta dizmek sayfayı
-     dolduruyordu. Metinler kayıtlarda duruyor ve Word/PDF dökümüne giriyor. */
-  const bos=list.length?'':'<div class="empty">Bu dönemde kayıt yok.</div>';
-  box.innerHTML=head+unkHtml+groupHtml+bos;
+  const disari='<div class="card"><div style="font-weight:600;margin-bottom:8px">Dışa aktar</div>'
+    +'<div class="row"><button class="btn sm" onclick="exportReport(\'excel\')">Excel</button>'
+    +'<button class="btn sm ghost" onclick="exportReport(\'word\')">Word</button>'
+    +'<button class="btn sm ghost" onclick="exportReport(\'pdf\')">PDF</button></div>'
+    +'<button class="btn" style="margin-top:10px" onclick="exportFullTemplate()">Tam Excel Şablonu</button></div>';
+
+  box.innerHTML=head+unkHtml
+    +bolum('BORÇLAR','ödenecek · çıkan para',borclar,y.tBorc,'var(--danger)','#fbeceb','Bu dönemde borç yok.')
+    +bolum('ALACAKLAR','tahsil edilecek · giren para',alacaklar,y.tAlacak,'var(--ok)','#e8f3ea','Bu dönemde alacak yok.')
+    +kategori+disari;
   window._reportList=list;
 }
 function exportReport(t){
   const list=window._reportList||[];
   if(!list.length){alert('Bu dönemde kayıt yok.');return;}
-  const title=(curReport==='week'?'Haftalik':'Aylik')+'_Rapor_'+todayStr();
+  const title=({week:'Haftalik',month:'Aylik',all:'Tum'}[curReport]||'')+'_Rapor_'+todayStr();
   if(t==='excel'){
     if(!xlsxHazir())return false;
     const its=allItems(list);
     const wb=XLSX.utils.book_new();
-    const ad=curReport==='week'?'HAFTALIK RAPOR (son 7 gün)':'AYLIK RAPOR (bu ay)';
+    const ad={week:'HAFTALIK RAPOR (son 7 gün)',month:'AYLIK RAPOR (bu ay)',all:'TÜM KAYITLAR'}[curReport];
     XLSX.utils.book_append_sheet(wb,defterSayfasi(its,'GÜNER — '+ad),'Defter');
     XLSX.utils.book_append_sheet(wb,ozetSayfasi(its,'GÜNER — '+ad+' · ÖZET'),'Özet');
     return writeWorkbook(wb,title+'.xlsx');
@@ -2706,7 +2762,7 @@ function exportReport(t){
     +`<tr><td style="padding:6px;border-top:2px solid #555">BORÇ (çıkan)</td><td style="padding:6px;text-align:right;border-top:2px solid #555">${_y.borc.length}</td><td style="padding:6px;text-align:right;border-top:2px solid #555">${money(_y.tBorc)}</td></tr>`
     +`<tr><td style="padding:6px">ALACAK (giren)</td><td style="padding:6px;text-align:right">${_y.alacak.length}</td><td style="padding:6px;text-align:right">${money(_y.tAlacak)}</td></tr>`
     +`<tr><td style="padding:6px;font-weight:bold">NET</td><td style="padding:6px"></td><td style="padding:6px;text-align:right;font-weight:bold">${_y.net<0?'−':''}${money(Math.abs(_y.net))}</td></tr></table>`):'';
-  const body=`<h2 style="font-family:sans-serif">${curReport==='week'?'Haftalık':'Aylık'} Döküm</h2>`+gTable+'<h3 style="font-family:sans-serif">Kayıtlar</h3>'+list.map(n=>`<div style="font-family:sans-serif;margin-bottom:12px"><div style="color:#555;font-size:12px">${fmt(n.createdAt)} · ${n.type==='voice'?'Ses':'Görsel'}</div><div style="white-space:pre-wrap">${escapeHtml(n.text)}</div></div>`).join('');
+  const body=`<h2 style="font-family:sans-serif">${({week:'Haftalık',month:'Aylık',all:'Tüm'})[curReport]} Döküm</h2>`+gTable+'<h3 style="font-family:sans-serif">Kayıtlar</h3>'+list.map(n=>`<div style="font-family:sans-serif;margin-bottom:12px"><div style="color:#555;font-size:12px">${fmt(n.createdAt)} · ${n.type==='voice'?'Ses':'Görsel'}</div><div style="white-space:pre-wrap">${escapeHtml(n.text)}</div></div>`).join('');
   if(t==='word'){dl(new Blob(['\ufeff<html><head><meta charset="utf-8"></head><body>'+body+'</body></html>'],{type:'application/msword'}),title+'.doc');}
   else{if(!pdfHazir())return false;const el=document.createElement('div');el.style.padding='16px';el.innerHTML=body;html2pdf().set({margin:10,filename:title+'.pdf',html2canvas:{scale:2},jsPDF:{unit:'mm',format:'a4'}}).from(el).save();}
 }
@@ -3353,7 +3409,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.1";
+const APP_VERSION="2026-10-14.2";
 let waitingWorker=null;
 
 function showUpdateBar(w){waitingWorker=w;document.getElementById('updBar').classList.add('show');}

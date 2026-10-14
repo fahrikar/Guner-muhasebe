@@ -1188,6 +1188,22 @@ try{
   check("izin hatası Türkçe anlatılıyor",
     await page.evaluate(()=>{ sesMesaj('⚠️ '+SES_HATA['not-allowed']); return document.getElementById('liveBox').textContent.includes('izni yok'); }));
   await page.evaluate(()=>{ delete window.webkitSpeechRecognition; delete window.SpeechRecognition; });
+  /* 28 — rapor: borç ve alacak ayrı bölümler, vade görünüyor */
+  check("raporda borç ve alacak ayrı bölümlerde, vade görünüyor",
+    await page.evaluate(()=>{
+      const eski=NOTES, ileri=todayStr(new Date(Date.now()+10*864e5));
+      NOTES=[{id:9801,onayli:true,createdAt:new Date().toISOString(),vade:ileri,
+              items:[{known:'Kereste firmasına',amount:180000,grup:'Serbest',yon:'borc'}]},
+             {id:9802,onayli:true,createdAt:new Date().toISOString(),
+              items:[{known:'Tahsilat',amount:12000,grup:'Gelir'}]}];
+      SERBEST_YON['Kereste firmasına']='borc';
+      go('reports'); report('all');
+      const t=document.getElementById('reportBox').textContent;
+      NOTES=eski; report('month');
+      const b=t.indexOf('BORÇLAR'), a=t.indexOf('ALACAKLAR'), k=t.indexOf('Kereste'), h=t.indexOf('Tahsilat');
+      return b>=0&&a>b&&k>b&&k<a&&h>a&&t.includes('Vade '+fmtDate(ileri))&&t.includes('10 gün kaldı')
+        &&document.getElementById('tabA').classList.contains('on')===false;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'
