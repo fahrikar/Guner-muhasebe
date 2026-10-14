@@ -665,6 +665,11 @@ function yerAdi(y){
 }
 function mudurYerKontrol(){
   if(isPatron()||benimYerim())return true;
+  /* Atamalar buluttan OKUNAMADIYSA (kurallar yayınlanmamış, internet yok)
+     müdürün atanmadığı bilinmiyor: engellenmez. Kaydın yeri patronun
+     telefonunda, oradaki atamaya göre belirlenir. Engel yalnız atamanın
+     olmadığı kesin bilindiğinde. */
+  if(yerUyari)return true;
   alert('Abdurrahman seni henüz bir şantiyeye ya da halısahaya atamadı.\n\n'
        +'Atama yapılınca buradan gelir ve gider girebilirsin.'
        +(yerUyari?'\n\n(Atamalar buluttan okunamadı — internet bağlantını kontrol et.)':''));
@@ -676,7 +681,9 @@ function yerBilgisiCiz(){
   const y=benimYerim();
   box.innerHTML=y
     ?'<div class="banner" style="border-color:var(--ok)">📍 <b>'+escapeHtml(yerAdi(y))+'</b> — girdiğin gelir ve giderler buraya yazılır.</div>'
-    :'<div class="banner">⚠️ Henüz bir yere atanmadın. Abdurrahman seni bir şantiyeye ya da halısahaya atayınca kayıt girebilirsin.</div>';
+    :yerUyari
+      ?''   // okunamadı uyarısı zaten bulutDurum'da; kayıt girilebilir
+      :'<div class="banner">⚠️ Henüz bir yere atanmadın. Abdurrahman seni bir şantiyeye ya da halısahaya atayınca kayıt girebilirsin.</div>';
 }
 
 /* Hatırlanan oturumun ömrü. Her açılışta tazelenir, yani günlük kullanımda
@@ -1127,7 +1134,15 @@ function startCloud(){
   yerRef=db.ref('yerler');
   yerRef.on('value',snap=>{
     const gelen=yerleriCoz(snap.val());
-    if(!gelen)return;                 // düğüm henüz yok: yereldekiyle devam
+    yerUyari=false; bulutDurumCiz();
+    /* Düğüm boşsa yereldekiyle devam; patron kendi atamalarını buluta
+       yazar — kurallar sonradan yayınlandıysa atamaları yeniden yapmak
+       gerekmesin. */
+    if(!gelen){
+      if(isPatron()&&SANTIYELER.some(y=>(y.mudurIds||[]).length||!y.tur))pushYerler();
+      yerBilgisiCiz();
+      return;
+    }
     SANTIYELER=gelen;
     /* Buluttaki eski atamalar da temizlenir; patron temiz hâlini geri yazar. */
     if(yerAtamalariniTemizle()&&isPatron())pushYerler();
@@ -1142,7 +1157,7 @@ function startCloud(){
     /* Eskiden giriş ekranındaki #cloudWarn'a yazılıyordu; giriş yapılmışken
        o ekran gizli olduğu için uyarıyı kimse görmüyordu. */
     yerUyari=!isPatron();
-    bulutDurumCiz();
+    bulutDurumCiz(); yerBilgisiCiz();
   });
 }
 let yerUyari=false;
@@ -1318,7 +1333,7 @@ function bulutDurumCiz(){
     h+='<div class="banner">⏳ <b>'+BULUT_KUYRUK.length+' kayıt buluta gönderilmeyi bekliyor.</b> '
       +'Bu telefonda kayıtlı; internet gelince kendiliğinden gönderilecek.</div>';
   if(yerUyari)
-    h+='<div class="banner">⚠️ Şantiye/halısaha ataması buluttan okunamadı.</div>';
+    h+='<div class="banner">⚠️ Şantiye/halısaha ataması buluttan okunamadı. Kayıt girebilirsin; hangi yere yazılacağını Abdurrahman\'ın telefonu belirler.</div>';
   box.innerHTML=h;
 }
 /* Kayıt ve müdürün verdiği borç aynı yoldan gider; kimin girdiği kayıt
@@ -3525,7 +3540,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.10";
+const APP_VERSION="2026-10-14.11";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni

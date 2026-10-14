@@ -1327,6 +1327,20 @@ try{
       go('home');
       return belgeSabit&&kaymadi;
     }));
+  /* 35 — atama buluttan okunamazsa müdür engellenmiyor (kurallar
+     yayınlanmamışken iş durmasın); atanmadığı kesin bilinirse engelleniyor. */
+  check("atama okunamazsa müdür kayıt girebiliyor, okunursa ve atama yoksa giremiyor",
+    await page.evaluate(()=>{
+      const e=CURRENT, eskiS=JSON.parse(JSON.stringify(SANTIYELER)), eskiU=yerUyari, eskiA=window.alert;
+      window.alert=()=>{};
+      SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]}];
+      CURRENT={rol:'mudur',ad:'Ahmet',mudurId:'ahmet'};
+      yerUyari=true; const okunamadi=mudurYerKontrol();
+      yerBilgisiCiz(); const bantYok=!document.getElementById('yerBilgi').textContent.includes('atanmadın');
+      yerUyari=false; const biliniyor=mudurYerKontrol();
+      CURRENT=e; SANTIYELER=eskiS; yerUyari=eskiU; window.alert=eskiA; applyRole();
+      return okunamadi===true&&bantYok&&biliniyor===false;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'
