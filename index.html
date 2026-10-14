@@ -91,13 +91,23 @@
     background:var(--card);box-shadow:var(--sh);transition:transform .14s ease}
   .hero:active{transform:scale(.987)}
   .hero.mic{background:radial-gradient(460px 220px at 50% 32%, rgba(180,165,135,.10), transparent 70%), var(--card)}
-  .hero.cam{background:radial-gradient(460px 220px at 50% 32%, rgba(180,165,135,.10), transparent 70%), var(--card)}
+  .hero.cam,.hero.yaz{background:radial-gradient(460px 220px at 50% 32%, rgba(180,165,135,.10), transparent 70%), var(--card)}
   .discwrap{position:relative;display:grid;place-items:center;width:98px;height:98px}
   .disc{width:98px;height:98px;border-radius:50%;display:grid;place-items:center;position:relative;z-index:2;
     transition:transform .12s ease}
   .discwrap.rec .disc{transform:scale(.94)}
-  .disc.mic,.disc.cam{background:linear-gradient(155deg,#fffef9,#ece3d2);border:1px solid #e6dcca;box-shadow:0 14px 30px rgba(90,76,48,.16), inset 0 1px 2px rgba(255,255,255,.85)}
+  .disc.mic,.disc.cam,.disc.yaz{background:linear-gradient(155deg,#fffef9,#ece3d2);border:1px solid #e6dcca;box-shadow:0 14px 30px rgba(90,76,48,.16), inset 0 1px 2px rgba(255,255,255,.85)}
   .disc svg{width:46px;height:46px}
+  #voiceCard.yazi .eq{display:none}
+  /* Ana ekranda üç kutu (ses, kamera, yazı) alt alta: yuvarlaklar ve
+     yazılar küçülür ki küçük telefonda da üçü bir ekrana sığsın. */
+  .split.uc{gap:12px}
+  .split.uc .hero{gap:6px}
+  .split.uc .discwrap,.split.uc .disc,.split.uc .waves,.split.uc .waves span{width:74px;height:74px}
+  .split.uc .disc svg{width:34px;height:34px}
+  .split.uc .hero h3{font-size:19px}
+  .split.uc .hero p{font-size:13px}
+  @media (max-height:700px){ .split.uc .hero p{display:none} }
   .hero h3{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
   .hero p{margin:0;color:var(--sub);font-size:14px;text-align:center;padding:0 24px;letter-spacing:-.01em}
 
@@ -247,7 +257,7 @@
     <div id="reminderBox"></div>
     <div id="bulutDurum"></div>
     <div id="yerBilgi"></div>
-    <div class="split">
+    <div class="split uc">
       <div class="hero mic" id="micHero">
         <div class="discwrap" id="discWrap">
         <div class="waves"><span></span><span></span><span></span></div>
@@ -274,12 +284,21 @@
         <h3>Kamera / Video</h3>
         <p>Fotoğraftaki yazıyı metne çevir</p>
       </div>
+      <div class="hero yaz" onclick="yaziylaGir()">
+        <div class="disc yaz">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#1d1d1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path><line x1="14" y1="8" x2="17" y2="11"></line>
+          </svg>
+        </div>
+        <h3>Yazarak Gir</h3>
+        <p>Klavyeyle yaz, kaydet</p>
+      </div>
     </div>
   </section>
 
   <!-- VOICE -->
   <section class="screen" id="voice">
-    <h2>Sesli Komut</h2>
+    <h2 id="voiceBaslik">Sesli Komut</h2>
     <div class="card" id="voiceCard">
       <div class="eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <textarea id="voiceText" placeholder="Konuştukların burada görünecek… (istersen elle de düzenleyebilirsin)"></textarea>
@@ -1411,6 +1430,11 @@ function go(id){
   if(id==='sites')renderSites();
   if(id==='factory')renderFactory();
   if(id==='pitch')renderPitch();
+  if(id==='voice'){
+    const vb=document.getElementById('voiceBaslik'); if(vb)vb.textContent='Sesli Komut';
+    document.getElementById('voiceCard').classList.remove('yazi');
+    document.getElementById('voiceText').placeholder='Konuştukların burada görünecek… (istersen elle de düzenleyebilirsin)';
+  }
   if(id==='camera')startCam(); else stopCam();
 }
 
@@ -1512,6 +1536,20 @@ function seslendirmeKapat(){
 }
 /* iPhone'da ses tanıma yoksa: yazı kutusuna götür, klavyedeki mikrofonla
    söylet, Kaydet'e bastır. Aynı onay ve çek akışından geçer. */
+/* Üçüncü giriş yolu: yazarak. Sesli komutla aynı kutu ve aynı Kaydet akışı
+   (onay, vade, çek penceresi); yalnız başlık ve ipucu farklı. */
+function yaziylaGir(){
+  if(!mudurYerKontrol())return;
+  go('voice');
+  document.getElementById('voiceBaslik').textContent='Yazarak Giriş';
+  /* Yazı modunda ses dalgası ve "konuştukların" yazısı anlamsız. */
+  document.getElementById('voiceCard').classList.add('yazi');
+  document.getElementById('voiceText').placeholder='Buraya yaz… Örn: yakıt 500';
+  document.getElementById('hdrTitle').textContent='Yazarak Giriş';
+  document.getElementById('voiceStatus').innerHTML=
+    '<span class="muted">Örn: <i>yakıt 500</i> · <i>Mehmet\'e 10 bin verildi 26 Kasım\'da alınacak</i> · <i>Ali\'den 50 bin çek aldım</i></span>';
+  setTimeout(()=>{const t=document.getElementById('voiceText');if(t)t.focus();},60);
+}
 function dikteyeYonlendir(){
   go('voice');
   const st=document.getElementById('voiceStatus');
@@ -3467,7 +3505,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.7";
+const APP_VERSION="2026-10-14.8";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni

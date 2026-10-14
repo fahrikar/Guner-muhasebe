@@ -1278,6 +1278,20 @@ try{
       NOTES=eskiN; SANTIYELER=eskiS; BULUT_KUYRUK=[]; await Store.set('kuyruk',[]); await Store.set('notes',NOTES);
       return bilgi&&bagli&&gorunur&&yerinde;
     }));
+  /* 32 — ana ekranda üç giriş: ses, kamera, yazı; yazı aynı kayıt akışında */
+  check("ana ekranda üç giriş kutusu var",
+    await page.evaluate(()=>{ go('home');
+      const h=[...document.querySelectorAll('#home .split .hero')].map(x=>x.textContent);
+      return h.length===3&&/Sesli/.test(h[0])&&/Kamera/.test(h[1])&&/Yazarak/.test(h[2]); }));
+  await page.evaluate(()=>{ yaziylaGir(); document.getElementById('voiceText').value='yakıt 640'; });
+  check("yazarak giriş ekranı açılıyor",
+    await page.evaluate(()=>document.getElementById('voiceBaslik').textContent==='Yazarak Giriş'
+      &&document.getElementById('voiceCard').classList.contains('yazi')));
+  page.evaluate(()=>saveNote('voice'));
+  await page.waitForSelector("#onayKat",{state:"visible",timeout:5000});
+  check("yazılan kayıt aynı onay akışına giriyor",
+    await page.evaluate(()=>onayKalemler.length===1&&onayKalemler[0].tutar===640));
+  await page.evaluate(()=>{ onayKapat(null); document.getElementById('voiceText').value=''; go('home'); });
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'
