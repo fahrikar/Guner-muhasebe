@@ -315,20 +315,22 @@ else ok("dış script'lerin hepsi defer");
 }
 
 /* 13 — belge muafiyeti doğru kişilere bakıyor mu?
-   Muafiyet 'patron' ve 'm4' diye kişi kimliğiyle yazılı. Rol listesindeki
-   sıra değişir de Ömer başka bir mudurId alırsa muafiyet sessizce yanlış
-   kişiye geçer — kimse fark etmez. Burası o bağı tutuyor. */
+   Muafiyet kişi kimliğiyle yazılı (ahmet, osman, idris). Rol listesinde
+   bir kimlik değişirse muafiyet sessizce yanlış kişiye geçer ya da düşer —
+   kimse fark etmez. Burası o bağı tutuyor; Fatih belge girmeli. */
 {
   const muaf=(html.match(/const BELGE_MUAF\s*=\s*\[([^\]]*)\]/)||[])[1];
-  const omer=(html.match(/rol:'mudur',\s*ad:'Ömer[^']*',\s*mudurId:'([^']+)'/)||[])[1];
+  const roller=html.match(/let BASE_ROLES=\[[\s\S]*?\n\];/);
+  const kimlik=ad=>(roller&&(roller[0].match(new RegExp("ad:'"+ad+"',\\s*mudurId:'([^']+)'"))||[])[1]);
+  const beklenen=["Ahmet","Osman","İdris"].map(kimlik), belgeli=kimlik("Fatih");
   if(muaf===undefined)bad("BELGE_MUAF bulunamadı — belge muafiyeti tanımsız.");
-  else if(!omer)bad("Ömer rol listesinde bulunamadı — belge muafiyeti doğrulanamıyor.");
-  else if(!/rol==='patron'\)return true/.test(html))
-    bad("Patron muafiyeti rolden okunmuyor — Abdurrahman'a belge sorulabilir.");
+  else if(beklenen.some(x=>!x)||!belgeli)bad("Ahmet/Osman/İdris/Fatih rol listesinde bulunamadı — belge muafiyeti doğrulanamıyor.");
   else{
-    const liste=muaf.split(",").map(s=>s.trim().replace(/^['"]|['"]$/g,"")).filter(Boolean);
-    if(!liste.includes(omer))bad(`Ömer '${omer}' ama BELGE_MUAF şunları taşıyor: ${liste.join(", ")||"(boş)"}.`);
-    else ok(`belge muafiyeti doğru kişilerde (patron, Ömer=${omer})`);
+    const liste=muaf.split(",").map(x=>x.trim().replace(/['"]/g,"")).filter(Boolean);
+    const eksik=beklenen.filter(x=>!liste.includes(x));
+    if(eksik.length)bad(`BELGE_MUAF ${eksik.join(", ")} taşımıyor: ${liste.join(", ")||"(boş)"}.`);
+    else if(liste.includes(belgeli))bad("Fatih belge muaf olmamalı.");
+    else ok(`belge muafiyeti doğru kişilerde (patron, ${beklenen.join(", ")}; Fatih belge girer)`);
   }
 }
 

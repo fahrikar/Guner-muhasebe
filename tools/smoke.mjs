@@ -736,16 +736,18 @@ try{
   check("gelir girişinde belge sorulmuyor",!(await page.isVisible("#belgeKat")));
 
   // 4) Ömer muaf: müdür olmasına rağmen belge sorulmuyor
-  check("Ömer (m4) belgeden muaf",await page.evaluate(()=>{
+  check("Ahmet, Osman ve İdris belgeden muaf",await page.evaluate(()=>{
     const eski=CURRENT;
-    CURRENT={rol:'mudur',ad:'Ömer 4',mudurId:'m4'};
-    const sonuc=belgeGerekir([{known:'Yakıt',amount:100}]);
+    const sonuc=['ahmet','osman','idris'].every(m=>{
+      CURRENT={rol:'mudur',ad:m,mudurId:m};
+      return belgeGerekir([{known:'Yakıt',amount:100}])===false;
+    });
     CURRENT=eski;
-    return sonuc===false;
+    return sonuc;
   }));
-  check("muaf olmayan müdüre belge gerekiyor",await page.evaluate(()=>{
+  check("Fatih'e belge gerekiyor",await page.evaluate(()=>{
     const eski=CURRENT;
-    CURRENT={rol:'mudur',ad:'Ahmet 1',mudurId:'m1'};
+    CURRENT={rol:'mudur',ad:'Fatih',mudurId:'fatih'};
     const sonuc=belgeGerekir([{known:'Yakıt',amount:100}]);
     CURRENT=eski;
     return sonuc===true;
@@ -1224,6 +1226,24 @@ try{
         &&document.getElementById('reportBox').textContent.slice(0,document.getElementById('reportBox').textContent.indexOf('ALACAKLAR')).includes("Ali'ye borç");
       NOTES=eski; await Store.set('notes',NOTES); report('month');
       return dugmeVar&&!acikta&&kapanan&&toplam&&korundu&&geri;
+    }));
+  /* 30 — şantiye eklerken müdür seçiliyor; seçilen müdür eski yerinden alınıyor;
+     listeden çıkarılan kişilerin atamaları temizleniyor. */
+  check("şantiye eklerken müdür seçilebiliyor",
+    await page.evaluate(async()=>{
+      const eskiS=JSON.parse(JSON.stringify(SANTIYELER)), eskiB=BASE_ROLES;
+      BASE_ROLES=eskiB.concat([{rol:'mudur',ad:'Osman',mudurId:'osman',hash:'x'},{rol:'mudur',ad:'İdris',mudurId:'idris',hash:'y'}]);
+      applyPinOverrides();
+      SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:['osman','m5']},{id:2,ad:'Halısaha',tur:'halisaha',mudurIds:[]}];
+      go('sites'); siteTab('ayar');
+      document.getElementById('sanAd').value='Malatya';
+      document.querySelectorAll('#sanMudurler input').forEach(c=>{c.checked=['osman','idris'].includes(c.value);});
+      await santiyeEkle();
+      const m=SANTIYELER.find(x=>x.ad==='Malatya'), f=SANTIYELER.find(x=>x.tur==='fabrika');
+      const ok1=!!m&&m.mudurIds.join(',')==='osman,idris'&&f.mudurIds.indexOf('osman')<0;
+      const ok2=yerAtamalariniTemizle()&&f.mudurIds.indexOf('m5')<0;
+      SANTIYELER=eskiS; BASE_ROLES=eskiB; applyPinOverrides(); await Store.set('santiyeler',SANTIYELER);
+      return ok1&&ok2;
     }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",

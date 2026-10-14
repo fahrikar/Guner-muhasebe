@@ -561,11 +561,10 @@ const PIN_ITER=310000;
 /* Kaynaktaki taban liste — `npm run pin` bu bloğu yeniden yazar. */
 let BASE_ROLES=[
   {rol:'patron', ad:'Abdurrahman', hash:'3cd434d9752a960d5786d5d998b757dba08a0120a6a3abf6430583fa7c813e02'},
-  {rol:'mudur', ad:'Ahmet 1', mudurId:'m1', hash:'aaa37c4c7aa5babca8d5a5aa3f18aee417e1327cd3ca141a630d7ee6ad05245e'},
-  {rol:'mudur', ad:'Hamdi 2', mudurId:'m2', hash:'1f9f8074294764c6ec3c28a4ee4ef6497fc45dde6a1c11bfb7651ec10f3d2596'},
-  {rol:'mudur', ad:'Fatih 3', mudurId:'m3', hash:'85607fbae348facee891b7140c80b0ad513e57d3fa8a18d644b0bedeaefc65ec'},
-  {rol:'mudur', ad:'Ömer 4', mudurId:'m4', hash:'3a820ea4aec2c3c6bbf5eb8115c34a487cfefbeb5ef5c235e32bc3d7cbe6fec7'},
-  {rol:'mudur', ad:'Çetin 5', mudurId:'m5', hash:'052f3997ba9dd259182136179c05564f5453c08509ab384e0aca221694666334'}
+  {rol:'mudur', ad:'Ahmet', mudurId:'ahmet', hash:'6086e267896ab3d8d667cd2668c8f4f052aee704937fb450e4358684e81fdde6'},
+  {rol:'mudur', ad:'Osman', mudurId:'osman', hash:'abd7ba28b951aefde6c9f8326c9267407d5a40fe446d74432f7fbf23b75275dd'},
+  {rol:'mudur', ad:'İdris', mudurId:'idris', hash:'5bdd39579a37334f6d7df94516668f2d3e6882dcafcf4240b375ebef73fd0934'},
+  {rol:'mudur', ad:'Fatih', mudurId:'fatih', hash:'10d64aa5e44164f3b5ac5ad1f9d31d3a049a88e6516db0af7d1819bcdd74e36a'}
 ];
 
 /* Kullanıcı kendi PIN'ini uygulama içinden değiştirebiliyor. Sayfa kendi
@@ -752,6 +751,7 @@ async function loadAll(){
     SANTIYELER.push({id:2,ad:'Halısaha',tur:'halisaha',mudurIds:[]}); yerEklendi=true;
   }
   if(yerEklendi)await Store.set('santiyeler',SANTIYELER);
+  yerAtamalariniTemizle();
   LEXICON=await Store.get('lexicon',[]);
   SERBEST_YON=await Store.get('serbestYon',{})||{};
   SETTINGS=Object.assign({},SES_VARSAYILAN,await Store.get('settings',{}));
@@ -981,13 +981,13 @@ async function onaydanKalemler(kalan){
 
 /* ---------- BELGE ZORUNLULUĞU ----------
    Müdürler gider (borç) girerken dekont/çek/slip bildirmek zorunda.
-   Muafiyet role değil KİŞİYE bağlı: Abdurrahman patron olduğu için, Ömer ise
-   müdür olmasına rağmen ayrıca muaf. kisiId() patron için 'patron', müdürler
-   için mudurId ('m1'…'m5') döndürür — Ömer m4.
+   Muafiyet role değil KİŞİYE bağlı: Abdurrahman patron olduğu için, Ahmet,
+   Osman ve İdris ise müdür olmalarına rağmen ayrıca muaf; Fatih belge girer.
+   kisiId() patron için 'patron', müdürler için mudurId döndürür.
    Bu kontrol uygulama tarafında; veritabanı kuralları belgeyi şart koşmuyor.
    Sunucu tarafında da zorunlu olsun istenirse database.rules.json'a eklenir
    ve kuralların yeniden yayınlanması gerekir. */
-const BELGE_MUAF=['m4'];                       // Ömer
+const BELGE_MUAF=['ahmet','osman','idris'];
 function belgeMuaf(){
   if(!CURRENT)return true;
   if(CURRENT.rol==='patron')return true;       // Abdurrahman
@@ -1063,6 +1063,8 @@ function startCloud(){
     const gelen=yerleriCoz(snap.val());
     if(!gelen)return;                 // düğüm henüz yok: yereldekiyle devam
     SANTIYELER=gelen;
+    /* Buluttaki eski atamalar da temizlenir; patron temiz hâlini geri yazar. */
+    if(yerAtamalariniTemizle()&&isPatron())pushYerler();
     Store.set('santiyeler',SANTIYELER);
     /* Atama değişince müdürün alt menüsü de değişmeli. */
     if(CURRENT)applyRole();
@@ -2896,6 +2898,19 @@ async function delPay(id){
    ESKİ kayıtları da yeni şantiyede görünür. Müdürler şantiyelerine sabit
    olduğu sürece bu doğru davranış; olmazsa kaydın üzerine yazmaya geçmek
    gerekir. */
+/* Listeden çıkarılan müdürlerin (eski m1…m5) atamaları kalırsa şantiye
+   kartında "müdür atanmış" görünür ama kimse giremez. Var olan kişilere
+   indirgenir. */
+function yerAtamalariniTemizle(){
+  const gecerli=BASE_ROLES.filter(r=>r.mudurId).map(r=>r.mudurId);
+  let degisti=false;
+  SANTIYELER.forEach(y=>{
+    const once=(y.mudurIds||[]).length;
+    y.mudurIds=(y.mudurIds||[]).filter(m=>gecerli.indexOf(m)>=0);
+    if(y.mudurIds.length!==once)degisti=true;
+  });
+  return degisti;
+}
 function santiyeAdi(mudurId){
   const s=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(mudurId)>=0);
   return s?s.ad:'';
@@ -2908,11 +2923,19 @@ function siteTab(hangi){
   document.getElementById('tabSanAyar').classList.toggle('on',ayar);
   renderSites();
 }
+/* Şantiye eklerken müdürü de seç: eskiden önce şantiye eklenip sonra
+   aşağıdaki listeden ayrıca atanıyordu. Bir müdür tek yerde olur; seçilen
+   müdür başka yerdeyse oradan alınır (bu yüzden onay sorulur). */
 async function santiyeEkle(){
   const ad=(document.getElementById('sanAd').value||'').trim();
   if(!ad){alert('Şantiye adı gerekli.');return;}
   if(SANTIYELER.some(s=>trLower(s.ad)===trLower(ad))){alert('Bu adda bir şantiye zaten var.');return;}
-  SANTIYELER.push({id:Date.now(),ad:ad,mudurIds:[]});
+  const secilen=[...document.querySelectorAll('#sanMudurler input:checked')].map(c=>c.value);
+  const tasinan=secilen.map(m=>({m,y:SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(m)>=0)})).filter(x=>x.y);
+  if(tasinan.length&&!confirm(tasinan.map(x=>((ROLES.find(r=>r.mudurId===x.m)||{}).ad||x.m)+' şu an "'+x.y.ad+'"da').join('\n')
+       +'\n\nYeni şantiyeye taşınsın mı?'))return;
+  SANTIYELER.forEach(y=>{ y.mudurIds=(y.mudurIds||[]).filter(m=>secilen.indexOf(m)<0); });
+  SANTIYELER.push({id:Date.now(),ad:ad,mudurIds:secilen});
   await Store.set('santiyeler',SANTIYELER); await pushYerler();
   document.getElementById('sanAd').value='';
   renderSites();
@@ -3046,8 +3069,16 @@ function renderSites(){
   const mudurler=ROLES.filter(r=>r.rol==='mudur');
   let a='<div class="card"><div style="font-weight:600;margin-bottom:4px">Yeni şantiye</div>'
     +'<div class="muted" style="margin-bottom:8px">Örn: Malatya, Bahçelievler…</div>'
-    +'<div class="row"><input id="sanAd" placeholder="Şantiye adı" style="flex:1;min-width:150px">'
-    +'<button class="btn sm" onclick="santiyeEkle()">Ekle</button></div></div>';
+    +'<input id="sanAd" placeholder="Şantiye adı">'
+    +'<div style="font-size:13px;color:var(--sub);margin:12px 0 6px">Bu şantiyenin müdürü</div>'
+    +'<div id="sanMudurler">'+mudurler.map(m=>{
+        const y=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(m.mudurId)>=0);
+        return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);margin:0;cursor:pointer">'
+          +'<input type="checkbox" value="'+escapeHtml(m.mudurId)+'" style="width:auto;margin:0">'
+          +'<span style="flex:1;color:var(--ink);font-size:15px">'+escapeHtml(m.ad)+'</span>'
+          +'<span class="muted" style="font-size:12px">'+(y?'şu an: '+escapeHtml(y.ad):'boşta')+'</span></label>';
+      }).join('')+'</div>'
+    +'<button class="btn" style="margin-top:12px" onclick="santiyeEkle()">Şantiyeyi ekle</button></div>';
   if(yerler.length){
     a+='<div class="card"><div style="font-weight:600;margin-bottom:2px">Şantiyeler</div>'
       +yerler.map(s=>'<div style="padding:10px 0;border-top:1px solid var(--line)">'
@@ -3397,7 +3428,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.5";
+const APP_VERSION="2026-10-14.6";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni
