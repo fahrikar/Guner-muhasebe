@@ -1245,6 +1245,39 @@ try{
       SANTIYELER=eskiS; BASE_ROLES=eskiB; applyPinOverrides(); await Store.set('santiyeler',SANTIYELER);
       return ok1&&ok2;
     }));
+  /* 31 — müdür yalnız atandığı yere kayıt girer; kayıt o yere bağlanır */
+  check("atanmamış müdür kayıt giremiyor, uyarı görüyor",
+    await page.evaluate(async()=>{
+      const e=CURRENT, eskiS=JSON.parse(JSON.stringify(SANTIYELER)), eskiN=NOTES.length;
+      SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]},{id:2,ad:'Halısaha',tur:'halisaha',mudurIds:[]}];
+      CURRENT={rol:'mudur',ad:'Ahmet',mudurId:'ahmet'}; applyRole();
+      const uyari=document.getElementById('yerBilgi').textContent.includes('atanmadın');
+      document.getElementById('voiceText').value='yakıt 500';
+      await saveNote('voice');
+      const engel=NOTES.length===eskiN&&!document.getElementById('onayKat').style.display.includes('flex');
+      document.getElementById('voiceText').value='';
+      CURRENT=e; SANTIYELER=eskiS; applyRole();
+      return uyari&&engel;
+    }));
+  check("halısaha müdürünün kaydı halısahaya bağlanıyor ve orada görünüyor",
+    await page.evaluate(async()=>{
+      const e=CURRENT, eskiS=JSON.parse(JSON.stringify(SANTIYELER)), eskiN=NOTES;
+      SANTIYELER=[{id:1,ad:'Fabrika',tur:'fabrika',mudurIds:[]},{id:2,ad:'Halısaha',tur:'halisaha',mudurIds:['osman']},
+                  {id:3,ad:'Malatya',mudurIds:[]}];
+      CURRENT={rol:'mudur',ad:'Osman',mudurId:'osman'}; applyRole();
+      const bilgi=document.getElementById('yerBilgi').textContent.includes('Halısaha');
+      const n={id:Date.now(),type:'voice',onayli:true,createdAt:new Date().toISOString(),
+               items:[{known:'Yakıt',amount:777,grup:'Gider'}]};
+      NOTES=[n]; await pushCloudNote(n);
+      const bagli=n.yerId===2;
+      /* Sonra şantiyeye taşınsa da kayıt halısahada kalır. */
+      SANTIYELER[1].mudurIds=[]; SANTIYELER[2].mudurIds=['osman'];
+      CURRENT=e; applyRole(); PITCH_DONEM='hepsi'; renderPitch();
+      const gorunur=document.getElementById('pitchBox').textContent.includes('777');
+      const yerinde=kalemYeriId(n,n.items[0])===2;
+      NOTES=eskiN; SANTIYELER=eskiS; BULUT_KUYRUK=[]; await Store.set('kuyruk',[]); await Store.set('notes',NOTES);
+      return bilgi&&bagli&&gorunur&&yerinde;
+    }));
   /* 20 — stok kaldırıldı: stok sözcüğü geçen cümle normal kayıt akışına gider */
   check("stok cümlesi kayıt olarak ayrıştırılıyor",
     await page.evaluate(()=>typeof detectStockCommand==='undefined'

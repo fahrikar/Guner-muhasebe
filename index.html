@@ -246,6 +246,7 @@
   <section class="screen" id="home">
     <div id="reminderBox"></div>
     <div id="bulutDurum"></div>
+    <div id="yerBilgi"></div>
     <div class="split">
       <div class="hero mic" id="micHero">
         <div class="discwrap" id="discWrap">
@@ -613,6 +614,30 @@ function initFirebase(){
 }
 
 function isPatron(){ return !!CURRENT&&CURRENT.rol==='patron'; }
+/* Müdürün atandığı yer (şantiye, fabrika ya da halısaha). Müdür yalnız
+   buraya gelir/gider girebilir; ataması yoksa kayıt giremez. */
+function benimYerim(){
+  if(!CURRENT||isPatron())return null;
+  return SANTIYELER.find(y=>(y.mudurIds||[]).indexOf(CURRENT.mudurId)>=0)||null;
+}
+function yerAdi(y){
+  return y.tur==='fabrika'?'Fabrika':y.tur==='halisaha'?'Halısaha':y.ad+' şantiyesi';
+}
+function mudurYerKontrol(){
+  if(isPatron()||benimYerim())return true;
+  alert('Abdurrahman seni henüz bir şantiyeye ya da halısahaya atamadı.\n\n'
+       +'Atama yapılınca buradan gelir ve gider girebilirsin.'
+       +(yerUyari?'\n\n(Atamalar buluttan okunamadı — internet bağlantını kontrol et.)':''));
+  return false;
+}
+function yerBilgisiCiz(){
+  const box=document.getElementById('yerBilgi'); if(!box)return;
+  if(!CURRENT||isPatron()){ box.innerHTML=''; return; }
+  const y=benimYerim();
+  box.innerHTML=y
+    ?'<div class="banner" style="border-color:var(--ok)">📍 <b>'+escapeHtml(yerAdi(y))+'</b> — girdiğin gelir ve giderler buraya yazılır.</div>'
+    :'<div class="banner">⚠️ Henüz bir yere atanmadın. Abdurrahman seni bir şantiyeye ya da halısahaya atayınca kayıt girebilirsin.</div>';
+}
 
 /* Hatırlanan oturumun ömrü. Her açılışta tazelenir, yani günlük kullanımda
    bir daha PIN sorulmaz; telefon aylarca kenarda kalırsa kendiliğinden düşer. */
@@ -786,6 +811,7 @@ function applyRole(){
   document.getElementById('btnAyar').style.display='';
   // müdür ana ekranda sadece mikrofonu görsün (kamera opsiyonel kalsın)
   document.body.classList.toggle('mudur',!patron);
+  yerBilgisiCiz();
 }
 
 /* ---------- ÇEK ONAYI ----------
@@ -1261,6 +1287,10 @@ function bulutDurumCiz(){
 async function pushCloudNote(note){
   if(!CURRENT)return;
   if(!note.mudurId){ note.mudur=CURRENT.ad; note.mudurId=CURRENT.mudurId||'patron'; }
+  if(note.yerId==null&&!isPatron()){
+    const y=benimYerim();
+    if(y){ note.yerId=y.id; note.yerAd=y.ad; }
+  }
   await Store.set('notes',NOTES);
   await buluta(note);
 }
@@ -1511,6 +1541,7 @@ function bindHold(el,opts={}){
   const down=e=>{
     e.preventDefault();
     if(held)return;
+    if(!mudurYerKontrol())return;
     try{el.setPointerCapture(e.pointerId);}catch(_){}
     basmaAni=Date.now();
     held=startVoice();                 // dokunuşun içinde, beklemeden
@@ -2161,6 +2192,7 @@ function fmt(iso){const d=new Date(iso);return pad(d.getDate())+'.'+pad(d.getMon
 /* zorlaCek: kamera ekranındaki "Çek olarak kaydet" düğmesi. Okunan metin
    çek gibi görünmese de (OCR sözcükleri kaçırabilir) çek penceresi açılır. */
 async function saveNote(type,zorlaCek){
+  if(!mudurYerKontrol())return;
   const el=type==='voice'?'voiceText':'ocrText';
   const txt=document.getElementById(el).value.trim();
   if(!txt&&!zorlaCek){alert('Kaydedilecek metin yok.');return;}
@@ -2891,13 +2923,10 @@ async function delPay(id){
 }
 
 /* ---------- ŞANTİYELER (yalnız patron) ----------
-   Şantiye kaydın ÜZERİNE yazılmıyor; müdür–şantiye eşleşmesinden okunuyor.
-   Böylece bir müdür başka şantiyeye atandığında ya da şantiyenin adı
-   değiştiğinde geçmiş kendiliğinden düzeliyor — kategori yönünün sözlükten
-   okunmasıyla aynı gerekçe. Karşılığı şu: bir müdür şantiye değiştirirse
-   ESKİ kayıtları da yeni şantiyede görünür. Müdürler şantiyelerine sabit
-   olduğu sürece bu doğru davranış; olmazsa kaydın üzerine yazmaya geçmek
-   gerekir. */
+   Müdür kaydı girildiği anda atandığı yere bağlanır (note.yerId); müdür
+   başka yere atansa da eski kayıtları eski yerinde kalır. Müdür yalnız
+   atandığı yere gelir/gider girebilir, ataması yoksa giremez. yerId'si
+   olmayan eski kayıtlar müdürün güncel atamasından okunur. */
 /* Listeden çıkarılan müdürlerin (eski m1…m5) atamaları kalırsa şantiye
    kartında "müdür atanmış" görünür ama kimse giremez. Var olan kişilere
    indirgenir. */
@@ -2978,6 +3007,13 @@ function fabrikaId(){
 /* Bir kalem hangi yere sayılır: fabrika kalemiyse fabrikaya, değilse onu
    giren müdürün bağlı olduğu yere. Yeri yoksa hiçbir ekranda toplanmaz. */
 function kalemYeriId(n,it){
+  /* Müdür kaydı girildiği anda atandığı yere bağlanır (n.yerId): müdür
+     yalnız o yere gelir/gider girebilir ve sonradan başka yere atanınca
+     eski kayıtları yerinde kalır. yerId'siz eski kayıtlar eski kuralla. */
+  if(n.yerId!=null){
+    const y=SANTIYELER.find(x=>String(x.id)===String(n.yerId));
+    if(y)return y.id;
+  }
   if(fabrikaKalemi(it))return fabrikaId();
   if(halisahaKalemi(it))return halisahaYeri().id;
   const s=SANTIYELER.find(x=>(x.mudurIds||[]).indexOf(n.mudurId)>=0);
@@ -3148,6 +3184,7 @@ function pitchBaslangic(){
 }
 let hizliKategori='';
 function hizliAc(kategori){
+  if(!mudurYerKontrol())return;
   hizliKategori=kategori;
   const alacak=yonOf(kategori)==='alacak';
   document.getElementById('hizliBaslik').textContent=kategori;
@@ -3190,7 +3227,9 @@ function renderPitch(){
   onayliNotes().forEach(n=>{
     if(new Date(n.createdAt)<bas)return;
     (n.items||[]).forEach(it=>{
-      if(!it.known||!halisahaKalemi(it))return;
+      /* Halısahaya sayılan her kalem: halısaha kategorileri ve halısaha
+         müdürünün girdiği her gelir/gider (yakıt, temizlik…). */
+      if(!it.known||kalemYeriId(n,it)!==halisahaYeri().id)return;
       const alacak=yonOf(it.known)==='alacak';
       if(alacak)gelir+=it.amount; else gider+=it.amount;
       kategori[it.known]=(kategori[it.known]||0)+it.amount;
@@ -3428,7 +3467,7 @@ function checkReminders(){
    alınır, internet yokken önbellekteki sürümle devam edilir. Sürüm çıkarken
    bu sabit ve sw.js'teki VERSION birlikte artırılmalı — sw.js baytı
    değişmezse tarayıcı yeni sürümü fark etmez. */
-const APP_VERSION="2026-10-14.6";
+const APP_VERSION="2026-10-14.7";
 let waitingWorker=null;
 
 /* iPhone'da ana ekran uygulaması öne gelince sayfa yeniden yüklenmez; yeni
